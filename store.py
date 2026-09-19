@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""EPUB Reader — persistence.  Human-readable JSON, atomic writes, one writer thread.
+"""Book Reader — persistence.  Human-readable JSON, atomic writes, one writer thread.
 
 Layout (all of it computed from ``os.environ``, never from ``QStandardPaths``,
 because ``QStandardPaths.AppConfigLocation`` returns AppData\\**Local** on
 Windows and would put the user's library in the wrong place)::
 
-    %APPDATA%\\EPUB Reader\\settings.json          settings, window state, typography
-    %APPDATA%\\EPUB Reader\\library.json           the shelf, one entry per known book
-    %APPDATA%\\EPUB Reader\\books\\<id>.json       position, bookmarks, highlights, overrides
-    %APPDATA%\\EPUB Reader\\books\\<id>.json.bak   the previous good generation
-    %APPDATA%\\EPUB Reader\\logs\\epub-reader.log  the log (owner G writes it)
-    %LOCALAPPDATA%\\EPUB Reader\\cache\\covers\\    regenerable cover thumbnails
+    %APPDATA%\\Book Reader\\settings.json          settings, window state, typography
+    %APPDATA%\\Book Reader\\library.json           the shelf, one entry per known book
+    %APPDATA%\\Book Reader\\books\\<id>.json       position, bookmarks, highlights, overrides
+    %APPDATA%\\Book Reader\\books\\<id>.json.bak   the previous good generation
+    %APPDATA%\\Book Reader\\logs\\book-reader.log  the log (owner G writes it)
+    %LOCALAPPDATA%\\Book Reader\\cache\\covers\\    regenerable cover thumbnails
 
 Every write is: serialize under the data lock -> ``copy2`` the current file to
 ``.bak`` -> ``mkstemp`` in the same directory -> write -> ``flush`` ->
@@ -118,16 +118,20 @@ SCHEMA: Final[int] = 1
 
 #: Directory name under %APPDATA% and %LOCALAPPDATA%; also the Qt
 #: organization/application name.
-APP_DIR_NAME: Final[str] = "EPUB Reader"
+APP_DIR_NAME: Final[str] = "Book Reader"
 #: Registry ProgId for the .epub association (no spaces allowed).
-PROG_ID: Final[str] = "EPUBReader.Epub.1"
-#: QLocalServer name for single-instance hand-off (\\.\pipe\epub-reader-single-instance).
-PIPE_NAME: Final[str] = "epub-reader-single-instance"
+PROG_ID: Final[str] = "BookReader.Book.1"
+#: QLocalServer name for single-instance hand-off (\\.\pipe\book-reader-single-instance).
+PIPE_NAME: Final[str] = "book-reader-single-instance"
 #: Log file name inside :func:`log_dir`.
-LOG_FILE_NAME: Final[str] = "epub-reader.log"
-#: The retired development name.  Used for exactly one thing: finding a
-#: development build's state directory to migrate in :func:`migrate_legacy_dirs`.
-LEGACY_DIR_NAME: Final[str] = "Verso"
+LOG_FILE_NAME: Final[str] = "book-reader.log"
+#: Retired names, newest first ("EPUB Reader" until v1.1, "Verso" in development).
+#: Used for exactly one thing: finding an older state directory to migrate in
+#: :func:`migrate_legacy_dirs`.
+LEGACY_DIR_NAMES: Final[tuple[str, ...]] = ("EPUB Reader", "Verso")
+LEGACY_DIR_NAME: Final[str] = LEGACY_DIR_NAMES[-1]
+#: Log file names those versions wrote (renamed to LOG_FILE_NAME on migration).
+LEGACY_LOG_NAMES: Final[tuple[str, ...]] = ("epub-reader.log", "verso.log")
 
 # --------------------------------------------------------------------------
 # value vocabularies
@@ -227,7 +231,7 @@ def normalize_theme_choice(value: object) -> str:
 # ==========================================================================
 
 def app_dir() -> str:
-    """``%APPDATA%\\EPUB Reader`` — the state of record, roams with the profile.
+    """``%APPDATA%\\Book Reader`` — the state of record, roams with the profile.
 
     Do NOT use ``QStandardPaths.AppConfigLocation``: on Windows it returns
     ``AppData\\Local`` (verified), which would strand the user's library.
@@ -239,7 +243,7 @@ def app_dir() -> str:
 
 
 def cache_dir() -> str:
-    """``%LOCALAPPDATA%\\EPUB Reader\\cache`` — regenerable, must not roam."""
+    """``%LOCALAPPDATA%\\Book Reader\\cache`` — regenerable, must not roam."""
     base = os.environ.get("LOCALAPPDATA")
     if not base:
         base = os.path.join(os.path.expanduser("~"), ".cache")
@@ -262,18 +266,18 @@ def log_dir(root: str | None = None) -> str:
 
 
 def log_file(root: str | None = None) -> str:
-    """``<root>\\logs\\epub-reader.log``."""
+    """``<root>\\logs\\book-reader.log``."""
     return os.path.join(log_dir(root), LOG_FILE_NAME)
 
 
 def migrate_legacy_dirs(
     appdata: str | None = None, localappdata: str | None = None
 ) -> list[str]:
-    """One-time move of a development build's state into the EPUB Reader root.
+    """One-time move of an older version's state into the Book Reader root.
 
-    If ``<appdata>\\<LEGACY_DIR_NAME>`` exists and ``<appdata>\\EPUB Reader``
-    does NOT, the old directory is moved across (and
-    ``<localappdata>\\<LEGACY_DIR_NAME>`` with it).  Once
+    If ``<appdata>\\Book Reader`` does NOT exist, the newest existing directory
+    named in :data:`LEGACY_DIR_NAMES` (``EPUB Reader``, then ``Verso``) is moved
+    across (and the same name under ``<localappdata>`` with it).  Once
     the new root exists this function returns immediately without looking at
     the legacy location again.  Idempotent and safe to call on every launch;
     :class:`Store` calls it itself when constructed with the default root.
@@ -291,14 +295,17 @@ def migrate_legacy_dirs(
     if not appdata:
         return notes
     new_root = os.path.join(appdata, APP_DIR_NAME)
-    old_root = os.path.join(appdata, LEGACY_DIR_NAME)
-    if os.path.lexists(new_root) or not os.path.isdir(old_root):
+    if os.path.lexists(new_root):
         return notes
+    legacy = next((n for n in LEGACY_DIR_NAMES if os.path.isdir(os.path.join(appdata, n))), None)
+    if legacy is None:
+        return notes
+    old_root = os.path.join(appdata, legacy)
 
     # 1. the Local cache first: it is regenerable, so a failure here is harmless
     #    and the state-root rename below stays the single commit point.
     if localappdata:
-        old_local = os.path.join(localappdata, LEGACY_DIR_NAME)
+        old_local = os.path.join(localappdata, legacy)
         new_local = os.path.join(localappdata, APP_DIR_NAME)
         if os.path.isdir(old_local):
             try:
@@ -334,16 +341,17 @@ def migrate_legacy_dirs(
                          f"({type(exc2).__name__}: {exc2})")
             return notes
 
-    # 3. legacy log names -> epub-reader.log[.N]
+    # 3. legacy log names (epub-reader.log, verso.log) -> book-reader.log[.N]
     logs = os.path.join(new_root, "logs")
-    legacy_log = LEGACY_DIR_NAME.lower() + ".log"
     with contextlib.suppress(OSError):
         for name in os.listdir(logs):
-            if name.lower().startswith(legacy_log):
-                target = os.path.join(logs, LOG_FILE_NAME + name[len(legacy_log):])
-                if not os.path.lexists(target):
-                    with contextlib.suppress(OSError):
-                        os.replace(os.path.join(logs, name), target)
+            for legacy_log in LEGACY_LOG_NAMES:
+                if name.lower().startswith(legacy_log):
+                    target = os.path.join(logs, LOG_FILE_NAME + name[len(legacy_log):])
+                    if not os.path.lexists(target):
+                        with contextlib.suppress(OSError):
+                            os.replace(os.path.join(logs, name), target)
+                    break
     return notes
 
 
@@ -508,7 +516,7 @@ def read_json(
 DEFAULT_SETTINGS: Final[dict[str, Any]] = {
     "schema": SCHEMA,
     "app": APP_DIR_NAME,
-    "version": "1.0.0",
+    "version": "1.1.0",
     "updated": "",
     "ui": {
         # UI_LANGUAGES: 'auto' | 'zh-Hans' | 'zh-Hant' | 'en' | 'ja'  (DECISIONS.md §2)
@@ -649,7 +657,7 @@ class _Writer(threading.Thread):
     """One thread, one queue keyed by path.  Coalescing is the whole point."""
 
     def __init__(self, data_lock: threading.RLock) -> None:
-        super().__init__(name="epub-reader-store-writer", daemon=True)
+        super().__init__(name="book-reader-store-writer", daemon=True)
         self._lock = data_lock
         self._cv = threading.Condition()
         self._pending: dict[str, _Pending] = {}
@@ -861,11 +869,11 @@ class Settings:
 # ==========================================================================
 
 class Store:
-    """Everything EPUB Reader remembers.  Thread-safe; one writer thread inside.
+    """Everything Book Reader remembers.  Thread-safe; one writer thread inside.
 
-    ``root`` defaults to ``%APPDATA%\\EPUB Reader`` (and then a development
+    ``root`` defaults to ``%APPDATA%\\Book Reader`` (and then a development
     build's legacy directory is migrated first).  ``cache_root`` defaults to
-    ``%LOCALAPPDATA%\\EPUB Reader\\cache`` for the default root, and to
+    ``%LOCALAPPDATA%\\Book Reader\\cache`` for the default root, and to
     ``<root>\\cache`` for any explicit root, so a test store never touches the
     real profile.
     """
@@ -1292,7 +1300,7 @@ class Store:
 
     # -- covers & identity -------------------------------------------------
     def cover_path(self, bid: str) -> str:
-        """``%LOCALAPPDATA%\\EPUB Reader\\cache\\covers\\<id>.jpg``.  Directory created."""
+        """``%LOCALAPPDATA%\\Book Reader\\cache\\covers\\<id>.jpg``.  Directory created."""
         directory = cover_dir(self.cache_root)
         os.makedirs(directory, exist_ok=True)
         return os.path.join(directory, f"{bid}.jpg")

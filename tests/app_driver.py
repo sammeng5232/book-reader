@@ -5,7 +5,7 @@
     python tests\\app_driver.py <scenario> <result.json> <out_dir> [app arguments...]
 
 ``tests/test_app.py`` starts one child per scenario with a temporary APPDATA and
-LOCALAPPDATA, so the user's real ``%APPDATA%\\EPUB Reader`` is never touched.
+LOCALAPPDATA, so the user's real ``%APPDATA%\\Book Reader`` is never touched.
 The scenario runs from ``main(on_started=...)`` once the event loop is up; it
 paces itself with processEvents loops, records checks into *result.json* and
 quits through the real quit path (a Ctrl+Q key event) unless it says otherwise.
@@ -335,7 +335,7 @@ def sc_launch(c: Ctx) -> None:
     win, r = c.win, c.r
     c.activate()
     c.check("window is shown", win.isVisible())
-    c.check("title on the shelf is 'EPUB Reader'", win.windowTitle() == "EPUB Reader", win.windowTitle())
+    c.check("title on the shelf is 'Book Reader'", win.windowTitle() == "Book Reader", win.windowTitle())
     c.check("shelf is the current page", win.stack.currentWidget() is win.library)
     c.check("key map audit is clean", not win.keys.problems, "; ".join(win.keys.problems))
     c.check("minimum size 720x520", (win.minimumWidth(), win.minimumHeight()) == (720, 520))
@@ -347,7 +347,7 @@ def sc_launch(c: Ctx) -> None:
     c.ready()
     title = r.book.metadata.get("title")
     c.check("reader is current after open", win.stack.currentWidget() is r)
-    c.check("title while reading is '<book> — EPUB Reader'", win.windowTitle() == f"{title} — EPUB Reader",
+    c.check("title while reading is '<book> — Book Reader'", win.windowTitle() == f"{title} — Book Reader",
             win.windowTitle())
     c.check("page rendered (pages >= 1)", int(r.page_state.get("pages") or 0) >= 1, str(r.page_state))
     c.shot("app_launch_reading")
@@ -382,7 +382,7 @@ def sc_fixtures(c: Ctx) -> None:
                 if name == "truncated.epub":
                     c.shot("app_error_card_corrupt")
                 c.check(f"{name}: window title names the file",
-                        win.windowTitle().endswith("— EPUB Reader"), win.windowTitle())
+                        win.windowTitle().endswith("— Book Reader"), win.windowTitle())
                 return
             c.ready(timeout=20)
             ms = (time.perf_counter() - t0) * 1000
@@ -706,7 +706,7 @@ def sc_features(c: Ctx) -> None:
 
     def export() -> None:
         md = r.export_markdown()
-        tmp = os.path.join(tempfile.gettempdir(), "epub-reader-export-test.md")
+        tmp = os.path.join(tempfile.gettempdir(), "book-reader-export-test.md")
         out = r.export_highlights(tmp)
         body = open(tmp, encoding="utf-8").read() if out and os.path.exists(tmp) else ""
         c.check("Markdown export has the title, all four quotes and the note",
@@ -921,7 +921,7 @@ def sc_features(c: Ctx) -> None:
         c.focus_book()
         c.key(K.Key_W, CTRL, settle=0.4)
         c.check("Ctrl+W closes the book and shows the shelf", win.stack.currentWidget() is win.library
-                and r.book is None and win.windowTitle() == "EPUB Reader")
+                and r.book is None and win.windowTitle() == "Book Reader")
         c.check("the shelf flashes 已回到书架 (in the UI language)", c.lib.notice_text()
                 == S("status.back_to_library"), c.lib.notice_text())
         c.key(K.Key_F1)
@@ -1071,7 +1071,7 @@ def sc_lang(c: Ctx) -> None:
         stale = stale_entries(prev_snap, snap, prev_lang, lang)
         c.check(f"reading: {prev_lang} -> {lang}: no label, tooltip, placeholder, menu item or status text "
                 f"shows {prev_lang} ({len(snap)} strings)", not stale, "; ".join(stale[:8]))
-        c.check(f"reading: {lang}: window title", win.windowTitle().endswith("— EPUB Reader"))
+        c.check(f"reading: {lang}: window title", win.windowTitle().endswith("— Book Reader"))
         r.reveal_chrome()
         c.pump(0.1)
         c.shot(f"app_lang_{lang}_reading")
@@ -1173,7 +1173,7 @@ def _crash_checks(c: Ctx) -> None:
     c.wait(lambda: win.crash_card.isVisible(), 5, "crash card")
     c.check("an unhandled exception shows the in-window error card", win.crash_card.isVisible()
             and "deliberate test failure" in win.crash_card.last_text)
-    c.check("the card names the log file", win.crash_card.path.text().endswith("epub-reader.log"),
+    c.check("the card names the log file", win.crash_card.path.text().endswith("book-reader.log"),
             win.crash_card.path.text())
     win.crash_card.details_btn.setChecked(True)
     c.pump(0.3)
@@ -1296,8 +1296,67 @@ def sc_probe(c: Ctx) -> None:
         c.quit_via_key()
 
 
+FORMAT_SAMPLES = os.path.join(HERE, "samples")
+PAGE_IMG_JS = ("(function(){var i=document.querySelector('img.pg');"
+               "return i?{w:i.naturalWidth,h:i.naturalHeight}:null})()")
+
+
+def sc_formats(c: Ctx) -> None:
+    """Kindle (MOBI, AZW3) and DjVu books open, render, turn pages and search in the real app."""
+    r, win = c.r, c.win
+    kindle = (("gb11.mobi", "Rabbit", 16), ("gb11_kf8.azw3", "Rabbit", 16),
+              ("gb24264.mobi", "寶玉", 100), ("gb24264_kf8.azw3", "寶玉", 120))
+    for name, query, min_toc in kindle:
+        path = os.path.join(FORMAT_SAMPLES, name)
+        if not os.path.isfile(path):
+            c.check(f"{name}: sample present", False, "tests/samples is missing it")
+            continue
+        win.open_path(path)
+        c.ready(timeout=40)
+        book = r.book
+        entries = []
+
+        def walk(es):
+            for e in es:
+                entries.append(e)
+                walk(e.children)
+        walk(book.toc)
+        c.check(f"{name}: opens as {book.source_format}", bool(r.page_state) and book.source_format in ("mobi", "azw3"),
+                win.windowTitle())
+        c.check(f"{name}: contents list", len(entries) >= min_toc, f"{len(entries)} entries")
+        c.check(f"{name}: search '{query}'", len(book.search(query)) > 5)
+        before = r.spine_index
+        r.next_chapter()
+        c.ready(timeout=20)
+        c.check(f"{name}: next chapter", r.spine_index == before + 1, f"{before} -> {r.spine_index}")
+    djvu_books = (("ia_indiansummer.djvu", "Colville", 15), ("ia_jstor_20637537.djvu", "JSTOR", 0))
+    for name, query, text_page in djvu_books:
+        path = os.path.join(FORMAT_SAMPLES, name)
+        if not os.path.isfile(path):
+            c.check(f"{name}: sample present", False, "tests/samples is missing it")
+            continue
+        win.open_path(path)
+        c.ready(timeout=60)
+        book = r.book
+        c.check(f"{name}: opens as a fixed-layout DjVu book",
+                book.source_format == "djvu" and book.is_fixed_layout and bool(r.page_state))
+        c.wait(lambda: (c.js(PAGE_IMG_JS) or {}).get("w", 0) > 0, 20, "page image")
+        c.check(f"{name}: the scanned page image decodes", (c.js(PAGE_IMG_JS) or {}).get("w", 0) > 500,
+                str(c.js(PAGE_IMG_JS)))
+        c.check(f"{name}: search in the OCR text", len(book.search(query)) > 0)
+        r._goto(text_page)
+        c.ready(timeout=30)
+        c.wait(lambda: (c.js(PAGE_IMG_JS) or {}).get("w", 0) > 0, 20, "page image")
+        inside = c.js("(function(){var s=document.querySelector('span.t'),i=document.querySelector('img.pg');"
+                      "if(!s||!i)return null;var a=s.getBoundingClientRect(),b=i.getBoundingClientRect();"
+                      "return a.left>=b.left&&a.right<=b.right&&a.top>=b.top&&a.bottom<=b.bottom})()")
+        c.check(f"{name}: OCR words lie on the scanned page", inside is True, str(inside))
+        c.shot("app_format_" + name.split(".")[0])
+    c.quit_via_key()
+
+
 SCENARIOS = {
-    "probe": sc_probe,
+    "probe": sc_probe, "formats": sc_formats,
     "launch": sc_launch, "fixtures": sc_fixtures, "real": sc_real, "features": sc_features,
     "restart_a": sc_restart_a, "restart_b": sc_restart_b, "lang": sc_lang, "lang_check": sc_lang_check,
     "single_primary": sc_single_primary, "crash": sc_crash, "shots": sc_shots,

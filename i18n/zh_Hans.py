@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""简体中文 UI strings for EPUB Reader (the copy from product-spec §5b).
+"""简体中文 UI strings for Book Reader (the copy from product-spec §5b).
 
 Rules (see docs/i18n-glossary.md and docs/DECISIONS.md section 2):
   * Quiet, plain, declarative.  Actions are verb-first (打开书籍, not 书籍打开).
@@ -235,7 +235,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "这本书是竖排版式，已改为滚动阅读",
     "status.link.missing": "链接指向的内容不在这本书中",
     "status.save_failed": "暂时无法保存阅读记录，稍后会自动重试",
-    "status.drop.unsupported": "只能打开 EPUB 文件",
+    "status.drop.unsupported": "只能打开 EPUB、MOBI、AZW3 和 DjVu 文件",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "不到 1 分钟",
@@ -315,7 +315,7 @@ TABLE: dict[str, str] = {
 
     # ---- library: empty and no-match states ----
     "lib.empty.title": "书架是空的",
-    "lib.empty.body": "把 EPUB 文件拖到这里，或者",
+    "lib.empty.body": "把电子书文件拖到这里，或者",
     "lib.nomatch": "没有匹配的书",
 
     # ---- library: found-books suggestion card ----
@@ -330,7 +330,7 @@ TABLE: dict[str, str] = {
     "lib.adding.other": "正在添加 {n} 个文件…",
     "lib.added.one": "已添加 {n} 本书",
     "lib.added.other": "已添加 {n} 本书",
-    "lib.added.none": "没有找到 EPUB 文件",
+    "lib.added.none": "没有找到电子书文件",
     "lib.add_failed.one": "{n} 个文件无法添加",
     "lib.add_failed.other": "{n} 个文件无法添加",
     "lib.already": "这本书已在书架上",
@@ -373,6 +373,8 @@ TABLE: dict[str, str] = {
     "info.identifier": "标识符",
     "info.description": "简介",
     "info.subjects": "分类",
+    "info.format": "格式",
+    "info.pages": "页数",
     "info.epub_version": "EPUB 版本",
     "info.layout": "版式",
     "info.layout.reflowable": "流式",
@@ -411,19 +413,20 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "打开书籍",
-    "dlg.open.filter": "EPUB 电子书 (*.epub)",
+    "dlg.open.filter": "电子书 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
     "dlg.all_files": "所有文件 (*)",
     "dlg.folder.title": "选择文件夹",
     "dlg.relocate.title": "重新定位《{title}》",
 
     # ---- error cards ----
     "err.corrupt.title": "无法打开这本书",
-    "err.corrupt.body": "文件可能已损坏，或者不是 EPUB 格式。",
+    "err.corrupt.body": "文件可能已损坏，或者不是受支持的电子书格式。",
     "err.drm.title": "这本书有 DRM 保护",
     "err.drm.body": "检测到 {kind} 加密。{app} 不解密受保护的文件，请用购买它的官方应用打开。",
     "err.drm.body.unknown": "检测到无法识别的加密方式。{app} 不解密受保护的文件，请用购买它的官方应用打开。",
     "err.drm.adept": "Adobe ADEPT",
     "err.drm.lcp": "Readium LCP",
+    "err.drm.mobipocket": "Kindle（Mobipocket）",
     "err.missing.title": "找不到这个文件",
     "err.missing.body": "《{title}》原来在：",
     "err.missing.searching": "正在查找文件…",
@@ -434,6 +437,8 @@ TABLE: dict[str, str] = {
     "err.toolarge.body": "解压后的内容超出了安全上限，{app} 不会打开它。",
     "err.access.title": "无法读取这个文件",
     "err.access.body": "文件可能正被其他程序占用，或者不允许读取。",
+    "err.unsupported.title": "暂不支持这种格式",
+    "err.unsupported.body": "{app} 可以打开 EPUB、MOBI、AZW3 和 DjVu 文件。这个文件使用的格式（例如 Kindle 的 KFX 或 Topaz）暂不支持。",
     "err.unexpected.body": "打开时发生了意外错误，技术细节中有具体原因。",
     "err.section": "本节内容无法显示",
     "err.details": "技术细节",
@@ -453,8 +458,8 @@ TABLE: dict[str, str] = {
     "err.crash.open_log": "打开日志文件夹",
 
     # ---- command line ----
-    "cli.usage": "用法：{exe} [EPUB 文件]",
-    "cli.description": "打开 EPUB 电子书；不带参数时显示书架。",
+    "cli.usage": "用法：{exe} [电子书文件]",
+    "cli.description": "打开 EPUB、MOBI、AZW3 或 DjVu 电子书；不带参数时显示书架。",
     "cli.help": "显示此帮助并退出",
     "cli.not_found": "找不到文件：{path}",
 
@@ -510,7 +515,7 @@ TABLE: dict[str, str] = {
 
     # ---- about ----
     "about.title": "关于 {app}",
-    "about.tagline": "一个安静的 EPUB 阅读器",
+    "about.tagline": "安静的电子书阅读器",
     "about.version": "版本 {version}",
     "about.built": "基于 Python {py} 与 Qt {qt}",
     "about.storage": "书架与批注保存在：",

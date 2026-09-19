@@ -1,6 +1,6 @@
-# EPUB Reader — module contract (authoritative)
+# Book Reader — module contract (authoritative)
 
-> **Read `docs/DECISIONS.md` too.** The user named the app **EPUB Reader** and asked for a four-language UI
+> **Read `docs/DECISIONS.md` too.** The user named the app **Book Reader** and asked for a four-language UI
 > (简体中文 / 繁體中文 / English / 日本語). The working name `Verso` from the research phase is RETIRED —
 > it must not appear in any user-visible string, filesystem path, registry key, pipe name or exe name.
 
@@ -12,8 +12,8 @@ Research lives in `docs/research/*.md` (six verified reports) and reference impl
 
 - Python 3.14.6 at `C:\Users\mengz\AppData\Local\Programs\Python\Python314\python.exe` (NOT `python` on PATH).
 - Allowed imports: Python stdlib, PySide6, Pillow, lxml. **No pip installs. No new dependencies. Ever.**
-- Identity (see DECISIONS.md §1): display name `EPUB Reader`; exe `EPUB Reader.exe`; state `%APPDATA%\EPUB Reader\`;
-  cache `%LOCALAPPDATA%\EPUB Reader\cache\`; ProgId `EPUBReader.Epub.1`; pipe `epub-reader-single-instance`.
+- Identity (see DECISIONS.md §1): display name `Book Reader`; exe `Book Reader.exe`; state `%APPDATA%\Book Reader\`;
+  cache `%LOCALAPPDATA%\Book Reader\cache\`; ProgId `BookReader.Book.1`; pipe `book-reader-single-instance`.
   Define these ONCE as constants in `store.py` (`APP_DIR_NAME`, `PROG_ID`, `PIPE_NAME`) and import them everywhere.
 - Internal code names: JS namespace `window.epubReader`, bridge `window.epubReaderHost`, CSS layer/class/data-attr
   prefix `er-`. Any leftover `verso` identifier is a bug.
@@ -129,7 +129,7 @@ search jumps and highlights are all silently wrong.
 
 ## 3. `store.py` + `theme.py` (owner B), `strings.py` + `i18n/` (owner I)
 
-`store.py`: JSON under `%APPDATA%\EPUB Reader\` from `os.environ['APPDATA']` (NOT QStandardPaths), atomic
+`store.py`: JSON under `%APPDATA%\Book Reader\` from `os.environ['APPDATA']` (NOT QStandardPaths), atomic
 `os.replace` writes, `.bak` generation, corrupt-file quarantine, integer `schema` + migrations, one
 serialized writer thread, debounce policy from the product spec (highlights/bookmarks flush IMMEDIATELY).
 Lift the verified implementation from `docs/research/product-spec.md`.
@@ -144,7 +144,7 @@ class Store:
     def book_state(self, book_id: str) -> dict      # position, bookmarks, highlights, overrides, stats
     def save_book_state(self, book_id: str, state: dict, *, immediate: bool = False) -> None
     def reader_settings(self, book_id: str | None) -> dict    # global merged with per-book overrides
-    def cover_path(self, book_id: str) -> str       # %LOCALAPPDATA%\EPUB Reader\cache\covers\<id>.jpg
+    def cover_path(self, book_id: str) -> str       # %LOCALAPPDATA%\Book Reader\cache\covers\<id>.jpg
     def book_id_for(self, path: str) -> str         # blake2b-128, cached on (path,size,mtime_ns)
     def flush(self) -> None                         # blocking; called on quit
 ```
@@ -153,7 +153,7 @@ class Store:
 ```python
 LANGUAGES = ("zh-Hans", "zh-Hant", "en", "ja")
 LANGUAGE_NAMES = {"zh-Hans": "简体中文", "zh-Hant": "繁體中文", "en": "English", "ja": "日本語"}  # endonyms, never translated
-APP_DISPLAY_NAME = "EPUB Reader"
+APP_DISPLAY_NAME = "Book Reader"
 def S(key: str, **fmt) -> str            # missing key raises under __debug__, returns the key in a frozen build
 def current_language() -> str
 def set_language(lang: str) -> None      # 'auto' resolves via QLocale.system(); emits language_changed
@@ -207,7 +207,7 @@ requests with forced GC). Must provide:
 ```python
 def register_epub_scheme() -> None        # MUST be called at import time, before QApplication exists
 class BookHost(QObject):
-    def __init__(self, profile_name: str = "epub-reader") -> None
+    def __init__(self, profile_name: str = "book-reader") -> None
     def set_book(self, book: EpubBook | None) -> None
     def url_for(self, zip_name: str, fragment: str = "") -> QUrl
     def attach(self, view: QWebEngineView) -> None
@@ -238,10 +238,10 @@ missing-file badge, empty state. Cover thumbnails via Pillow into the cache path
 ## 8. `epub_reader.py` + `run.ps1` (owner G)
 
 Entry point: `register_epub_scheme()` before `QApplication`; HiDPI setup; single-instance `QLocalServer`
-(`epub-reader-single-instance`) forwarding `OPEN <path>` to the running process; `QStackedWidget` over
+(`book-reader-single-instance`) forwarding `OPEN <path>` to the running process; `QStackedWidget` over
 `LibraryPage` and `ReaderPage`; the complete conflict-audited keyboard map bound centrally with the gating
 rule (single-letter keys only when the view has focus and no text input is focused); window geometry
-restore; `--help`/`argv[1]` handling; a crash-safe `excepthook` that logs to `%APPDATA%\EPUB Reader\logs\`. On first launch, migrate a dev-build `%APPDATA%\Verso\` if present.
+restore; `--help`/`argv[1]` handling; a crash-safe `excepthook` that logs to `%APPDATA%\Book Reader\logs\`. On first launch, migrate a dev-build `%APPDATA%\Verso\` if present.
 `run.ps1` launches from source with the right interpreter.
 
 ## 9. Definition of done (every owner)

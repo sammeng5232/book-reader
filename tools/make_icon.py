@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Generate assets/app.ico for EPUB Reader — Pillow only, no other dependencies.
+"""Generate assets/app.ico for Book Reader — Pillow only, no other dependencies.
 
 Design notes
 ------------

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""繁體中文 UI strings for EPUB Reader (Taiwan software conventions).
+"""繁體中文 UI strings for Book Reader (Taiwan software conventions).
 
 Written as a Taiwanese product would write it, not converted from zh_Hans:
   * Taiwan terms throughout (docs/i18n-glossary.md): 檔案, 資料夾, 設定, 搜尋,
@@ -240,7 +240,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "這本書採用直排，已改用捲動模式閱讀",
     "status.link.missing": "連結指向的內容不在這本書中",
     "status.save_failed": "暫時無法儲存閱讀紀錄，稍後會自動重試",
-    "status.drop.unsupported": "只能開啟 EPUB 檔案",
+    "status.drop.unsupported": "只能開啟 EPUB、MOBI、AZW3 和 DjVu 檔案",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "不到 1 分鐘",
@@ -320,7 +320,7 @@ TABLE: dict[str, str] = {
 
     # ---- library: empty and no-match states ----
     "lib.empty.title": "書櫃是空的",
-    "lib.empty.body": "將 EPUB 檔案拖曳到這裡，或是",
+    "lib.empty.body": "將電子書檔案拖曳到這裡，或",
     "lib.nomatch": "沒有符合的書籍",
 
     # ---- library: found-books suggestion card ----
@@ -335,7 +335,7 @@ TABLE: dict[str, str] = {
     "lib.adding.other": "正在加入 {n} 個檔案…",
     "lib.added.one": "已加入 {n} 本書",
     "lib.added.other": "已加入 {n} 本書",
-    "lib.added.none": "沒有找到 EPUB 檔案",
+    "lib.added.none": "找不到電子書檔案",
     "lib.add_failed.one": "{n} 個檔案無法加入",
     "lib.add_failed.other": "{n} 個檔案無法加入",
     "lib.already": "這本書已在書櫃中",
@@ -378,6 +378,8 @@ TABLE: dict[str, str] = {
     "info.identifier": "識別碼",
     "info.description": "簡介",
     "info.subjects": "分類",
+    "info.format": "格式",
+    "info.pages": "頁數",
     "info.epub_version": "EPUB 版本",
     "info.layout": "版型",
     "info.layout.reflowable": "流動版型",
@@ -416,19 +418,20 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "開啟書籍",
-    "dlg.open.filter": "EPUB 電子書 (*.epub)",
+    "dlg.open.filter": "電子書 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
     "dlg.all_files": "所有檔案 (*)",
     "dlg.folder.title": "選擇資料夾",
     "dlg.relocate.title": "重新指定《{title}》的位置",
 
     # ---- error cards ----
     "err.corrupt.title": "無法開啟這本書",
-    "err.corrupt.body": "檔案可能已損毀，或不是 EPUB 格式。",
+    "err.corrupt.body": "檔案可能已損毀，或不是支援的電子書格式。",
     "err.drm.title": "這本書受 DRM 保護",
     "err.drm.body": "偵測到 {kind} 加密。{app} 不會解密受保護的檔案，請使用購書平台提供的應用程式開啟。",
     "err.drm.body.unknown": "偵測到無法辨識的加密方式。{app} 不會解密受保護的檔案，請使用購書平台提供的應用程式開啟。",
     "err.drm.adept": "Adobe ADEPT",
     "err.drm.lcp": "Readium LCP",
+    "err.drm.mobipocket": "Kindle（Mobipocket）",
     "err.missing.title": "找不到這個檔案",
     "err.missing.body": "《{title}》原本位於：",
     "err.missing.searching": "正在尋找檔案…",
@@ -439,6 +442,8 @@ TABLE: dict[str, str] = {
     "err.toolarge.body": "解壓縮後的內容超過安全上限，{app} 不會開啟這個檔案。",
     "err.access.title": "無法讀取這個檔案",
     "err.access.body": "檔案可能正由其他程式使用，或沒有讀取權限。",
+    "err.unsupported.title": "尚不支援這種格式",
+    "err.unsupported.body": "{app} 可以開啟 EPUB、MOBI、AZW3 和 DjVu 檔案。這個檔案使用的格式（例如 Kindle 的 KFX 或 Topaz）尚不支援。",
     "err.unexpected.body": "開啟時發生未預期的錯誤，原因請見技術細節。",
     "err.section": "本節內容無法顯示",
     "err.details": "技術細節",
@@ -458,8 +463,8 @@ TABLE: dict[str, str] = {
     "err.crash.open_log": "開啟記錄檔資料夾",
 
     # ---- command line ----
-    "cli.usage": "用法：{exe} [EPUB 檔案]",
-    "cli.description": "開啟 EPUB 電子書；未指定檔案時顯示書櫃。",
+    "cli.usage": "用法：{exe} [電子書檔案]",
+    "cli.description": "開啟 EPUB、MOBI、AZW3 或 DjVu 電子書；未指定檔案時顯示書架。",
     "cli.help": "顯示此說明並結束",
     "cli.not_found": "找不到檔案：{path}",
 
@@ -515,7 +520,7 @@ TABLE: dict[str, str] = {
 
     # ---- about ----
     "about.title": "關於 {app}",
-    "about.tagline": "安靜的 EPUB 閱讀器",
+    "about.tagline": "安靜的電子書閱讀器",
     "about.version": "版本 {version}",
     "about.built": "以 Python {py} 與 Qt {qt} 建置",
     "about.storage": "書櫃與畫線資料儲存在：",

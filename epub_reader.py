@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""EPUB Reader — application entry point (owner G, CONTRACT §8).
+"""Book Reader — application entry point (owner G, CONTRACT §8).
 
 Run it from source with ``run.ps1`` (or the 3.14 interpreter directly)::
 
@@ -94,6 +94,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import bookformats
 import store as store_mod
 import strings
 import theme as theme_mod
@@ -125,7 +126,7 @@ __all__ = [
 APP_VERSION: str = str(store_mod.DEFAULT_SETTINGS.get("version") or "1.0.0")
 MIN_SIZE: tuple[int, int] = (720, 520)          # product spec §3
 DEFAULT_SIZE: tuple[int, int] = (1280, 900)
-APP_USER_MODEL_ID = "EPUBReader.App.1"
+APP_USER_MODEL_ID = "BookReader.App.1"
 LOG_MAX_BYTES = 1 << 20
 LOG_BACKUPS = 3
 FORWARD_TIMEOUT_MS = 2500
@@ -154,7 +155,7 @@ _LOG_HANDLER: logging.Handler | None = None
 
 
 def setup_logging(root: str | None = None, *, debug: bool = False) -> str:
-    """Open ``<state root>\\logs\\epub-reader.log`` (1 MB x 3) and return its path.
+    """Open ``<state root>\\logs\\book-reader.log`` (1 MB x 3) and return its path.
 
     Idempotent: a second call does not add a second handler.  Never raises; if
     the log directory cannot be created the app still runs, logging to stderr.
@@ -863,7 +864,7 @@ class CrashCard(QFrame):
 
 
 class AboutDialog(QDialog):
-    """关于 EPUB Reader: version, what it was built with, and where the data lives."""
+    """关于 Book Reader: version, what it was built with, and where the data lives."""
 
     def __init__(self, store: Store, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -945,7 +946,7 @@ class MainWindow(QMainWindow):
     """The one window: ``QStackedWidget`` over the shelf and the reader.
 
     ``MainWindow(path=None, *, store=None, theme_controller=None, debug=None)``.
-    Without *store* it opens the default Store (``%APPDATA%\\EPUB Reader``) and
+    Without *store* it opens the default Store (``%APPDATA%\\Book Reader``) and
     closes it when the window closes.  *path* opens that book right away.
     """
 
@@ -1361,7 +1362,7 @@ class MainWindow(QMainWindow):
         if mime is None or not mime.hasUrls():
             return []
         return [u.toLocalFile() for u in mime.urls()
-                if u.isLocalFile() and u.toLocalFile().lower().endswith(".epub")]
+                if u.isLocalFile() and bookformats.is_book_file(u.toLocalFile())]
 
     def dragEnterEvent(self, event: Any) -> None:  # noqa: N802
         if self.is_reading() and self._dropped_epubs(event):

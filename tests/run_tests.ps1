@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Run the epub-reader test suite with the correct interpreter and PYTHONPATH.
+    Run the book-reader test suite with the correct interpreter and PYTHONPATH.
 
 .DESCRIPTION
     Uses Python 3.14 (NOT the 3.13 on PATH), puts the project root on
@@ -11,7 +11,7 @@
     Exit codes:  0 = all green, 1 = failures/errors, 2 = could not run.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File C:\Users\mengz\epub-reader\tests\run_tests.ps1
+    powershell -ExecutionPolicy Bypass -File C:\Users\mengz\book-reader\tests\run_tests.ps1
 
 .EXAMPLE
     .\run_tests.ps1 -Regenerate -Detailed

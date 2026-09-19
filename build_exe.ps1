@@ -1,9 +1,9 @@
 ﻿<#
 ================================================================================
- build_exe.ps1  --  package EPUB Reader as a double-clickable Windows app
+ build_exe.ps1  --  package Book Reader as a double-clickable Windows app
 ================================================================================
 
- Produces a ONEDIR bundle:   dist\EPUB Reader\EPUB Reader.exe
+ Produces a ONEDIR bundle:   dist\Book Reader\Book Reader.exe
 
  Why onedir and not onefile (measured on this machine, 2026-09-16):
 
@@ -40,8 +40,8 @@ param(
 
     # Final, user-visible name. The build itself runs under $BuildName (ASCII)
     # and the result is renamed; see "CJK naming" below.
-    [string] $AppName = 'EPUB Reader',
-    [string] $BuildName = 'EPUBReader',
+    [string] $AppName = 'Book Reader',
+    [string] $BuildName = 'BookReader',
 
     [switch] $OneFile,
     [switch] $CleanCache,
@@ -102,7 +102,7 @@ if ($probe.Length -ge 250) {
           "    $probe`n" +
           "  ($($probe.Length) chars). PyInstaller's Win32 resource update is not long-path`n" +
           "  aware and fails with WinError 122 past ~260 chars.`n" +
-          "  Move the project somewhere shorter, e.g. C:\src\epub-reader.")
+          "  Move the project somewhere shorter, e.g. C:\src\book-reader.")
 }
 
 # =============================================================================
@@ -208,6 +208,18 @@ Info "entry        : $EntryPath"
 # =============================================================================
 Step "Checking assets"
 
+# The DjVu decoder is C# (djvutool\*.cs), compiled with the .NET Framework compiler
+# that ships with Windows into assets\djvutool.exe so it is bundled with the app.
+# djvu.tool_path() rebuilds it only when a source file is newer.
+Push-Location $Root
+try {
+    $djvuTool = (& $Python -c "import djvu; print(djvu.tool_path())" 2>&1 | Select-Object -Last 1)
+} finally { Pop-Location }
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $AssetDir 'djvutool.exe'))) {
+    Fail ("Could not build the DjVu decoder (assets\djvutool.exe):`n    $djvuTool")
+}
+Info "djvu decoder : $djvuTool"
+
 if (-not (Test-Path -LiteralPath $AssetDir -PathType Container)) {
     Fail ("Missing assets folder:`n    $AssetDir`n" +
           "  The reader needs reader.css / reader.js (and any HTML shell) bundled`n" +
@@ -276,9 +288,9 @@ Step "Running PyInstaller (this takes ~3-5 minutes for QtWebEngine)"
 
 # CJK naming:
 #   Building under an ASCII --name and renaming afterwards is deliberate.
-#   Passing "EPUB Reader" straight to --name DOES work on this machine (the
+#   Passing "Book Reader" straight to --name DOES work on this machine (the
 #   system ANSI code page is UTF-8, verified: a direct CJK build produced a
-#   working EPUB Reader.exe), but Windows PowerShell 5.1 encodes native-command
+#   working Book Reader.exe), but Windows PowerShell 5.1 encodes native-command
 #   arguments with the ANSI code page, so on a machine where that is 936/1252
 #   the name would be mangled. Renaming afterwards goes through .NET and is
 #   always Unicode-clean. The PyInstaller onedir bootloader locates its

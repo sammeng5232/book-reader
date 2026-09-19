@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""EPUB Reader — the one door to every user-visible string.
+"""Book Reader — the one door to every user-visible string.
 
 No other module may contain literal user-facing text.  Tables live in the
 :mod:`i18n` package (one module per language); this module is the API::
@@ -7,7 +7,7 @@ No other module may contain literal user-facing text.  Tables live in the
     from strings import S, plural, set_language, language_changed
 
     S("tb.toc")                           # '目录' / 'Contents'
-    S("menu.about")                       # '关于 EPUB Reader'   ({app} is automatic)
+    S("menu.about")                       # '关于 Book Reader'   ({app} is automatic)
     plural("search.count", 2371)          # '共 2371 处' / '2371 matches'
     S("status.left.chapter", time=duration(12))   # '本章剩余 12 分钟'
 
@@ -88,7 +88,7 @@ _log = logging.getLogger("epub_reader.strings")
 
 #: The product name shown in window titles, About and the cheat sheet.
 #: Filesystem/registry identities live in store.py (APP_DIR_NAME, PROG_ID, PIPE_NAME).
-APP_DISPLAY_NAME: Final[str] = "EPUB Reader"
+APP_DISPLAY_NAME: Final[str] = "Book Reader"
 
 #: Shipped UI languages, in selector order.
 LANGUAGES: Final[tuple[str, ...]] = ("zh-Hans", "zh-Hant", "en", "ja")
@@ -963,7 +963,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")  # type: ignore[union-attr]
     except (AttributeError, ValueError):
         pass
-    parser = argparse.ArgumentParser(prog="strings.py", description="EPUB Reader UI string tables.")
+    parser = argparse.ArgumentParser(prog="strings.py", description="Book Reader UI string tables.")
     parser.add_argument("--check", action="store_true", help="validate all four tables")
     parser.add_argument("--strict-translations", action="store_true",
                         help="with --check: untranslated stub values are errors")

@@ -1,21 +1,21 @@
 # Product decisions from the user (authoritative — override earlier research)
 
-## 1. App name: "EPUB Reader"
+## 1. App name: "Book Reader"
 
-The research phase specced the working name `Verso` throughout. The user chose **EPUB Reader**.
+The research phase specced the working name `Verso` throughout. The user chose **Book Reader**.
 Rename pass required across every file:
 
 | Thing | Value |
 |---|---|
-| Display name (window title, About, library screen, cheat sheet) | `EPUB Reader` |
-| Window title while reading | `<书名> — EPUB Reader` |
-| Executable | `EPUB Reader.exe` |
-| State root | `%APPDATA%\EPUB Reader\` |
-| Cache root | `%LOCALAPPDATA%\EPUB Reader\cache\` |
-| ProgId (registry, no spaces allowed) | `EPUBReader.Epub.1` |
-| Single-instance pipe | `epub-reader-single-instance` |
-| Qt org / app name | `EPUB Reader` |
-| Log file | `%APPDATA%\EPUB Reader\logs\epub-reader.log` |
+| Display name (window title, About, library screen, cheat sheet) | `Book Reader` |
+| Window title while reading | `<书名> — Book Reader` |
+| Executable | `Book Reader.exe` |
+| State root | `%APPDATA%\Book Reader\` |
+| Cache root | `%LOCALAPPDATA%\Book Reader\cache\` |
+| ProgId (registry, no spaces allowed) | `BookReader.Book.1` |
+| Single-instance pipe | `book-reader-single-instance` |
+| Qt org / app name | `Book Reader` |
+| Log file | `%APPDATA%\Book Reader\logs\book-reader.log` |
 
 Migration: if a `%APPDATA%\Verso\` directory exists from development builds, move it to the new root on
 first launch rather than orphaning it, then never look again.
@@ -47,3 +47,14 @@ Requirements:
 Everything else in `docs/CONTRACT.md` and `docs/research/product-spec.md` stands: JSON persistence with atomic
 writes, blake2b-128 book identity, the gpos locator, paginated-by-default with instant turns, the four-pane dock,
 live-apply settings, files referenced in place and never copied, and no cloud/accounts/format-conversion.
+
+## 4. v1.1 (2026-09-19): renamed to "Book Reader", more formats
+
+The user asked for MOBI / AZW / AZW3 and DjVu support, then renamed the app **Book Reader** (repository
+`book-reader`), since it is no longer an EPUB-only reader. The whole identity changed: display name,
+`Book Reader.exe`, `%APPDATA%\Book Reader\`, ProgId `BookReader.Book.1`, pipe `book-reader-single-instance`,
+log `book-reader.log`. `store.migrate_legacy_dirs()` moves an existing `EPUB Reader` (or older `Verso`)
+state directory across on first launch, so nobody loses a library, positions or notes.
+
+Internal code names (`epublib.py`, `epub_reader.py`, `window.epubReader`, the `er-` CSS prefix) were kept on
+purpose: they are not user-visible, and `epublib` genuinely is the EPUB parser that every format now feeds.

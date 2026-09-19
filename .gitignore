@@ -14,3 +14,9 @@ _scratch/
 .idea/
 Thumbs.db
 desktop.ini
+
+# The DjVu decoder is compiled from djvutool\*.cs on demand (djvu.tool_path()) and by
+# build_exe.ps1; the binary is never committed.
+assets/djvutool.exe
+djvutool/*.exe
+*.building.exe

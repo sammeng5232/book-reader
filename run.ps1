@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Launch EPUB Reader from source.
+    Launch Book Reader from source.
 
 .DESCRIPTION
     Uses Python 3.14 (NOT the 3.13 on PATH, which has no PySide6) and passes every

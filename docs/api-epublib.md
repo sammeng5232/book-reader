@@ -1,6 +1,6 @@
 # `epublib.py` — API reference (owner A)
 
-A from-scratch EPUB 2/3 parser for EPUB Reader. Standard library only (no lxml,
+A from-scratch EPUB 2/3 parser for Book Reader. Standard library only (no lxml,
 no third-party EPUB library). Every other module reads books through it.
 
 Verification:

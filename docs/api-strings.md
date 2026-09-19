@@ -1,6 +1,6 @@
 # `strings.py` + `i18n/` — API (owner I)
 
-Every user-visible string in EPUB Reader comes from here. The UI language can be 简体中文, 繁體中文, English or
+Every user-visible string in Book Reader comes from here. The UI language can be 简体中文, 繁體中文, English or
 日本語, and it switches **live**. `strings.py` is the API and imports no Qt. The tables live in `i18n/`, one module
 per language.
 
@@ -92,7 +92,7 @@ Each entry has one example. Output shown for `zh-Hans` unless stated.
 
 ### Constants
 
-**`APP_DISPLAY_NAME: str`** is `"EPUB Reader"`, never translated. Filesystem and registry identities live in `store.py`.
+**`APP_DISPLAY_NAME: str`** is `"Book Reader"`, never translated. Filesystem and registry identities live in `store.py`.
 ```python
 QApplication.setApplicationDisplayName(strings.APP_DISPLAY_NAME)
 ```
@@ -155,7 +155,7 @@ S("err.missing.body", title="从此岸到彼岸")     # '《从此岸到彼岸�
 
 **`translate(lang, key, /, **fmt) -> str`** works like `S` in an explicit language.
 ```python
-strings.translate("en", "menu.about")   # 'About EPUB Reader'
+strings.translate("en", "menu.about")   # 'About Book Reader'
 ```
 
 **`has(key, /) -> bool`** reports whether a key exists.
@@ -286,7 +286,7 @@ empty list means OK. It checks:
 - identical `{placeholder}` sets per key, using only `{simple_name}`
 - no empty values and no stray whitespace
 - the retired working name appears in no table, source file or doc of this package
-- no hard-coded `EPUB Reader` in copy (use `{app}`)
+- no hard-coded `Book Reader` in copy (use `{app}`)
 - no exclamation marks, no emoji, no mojibake, and `…` rather than `...`
 - plural `.one` / `.other` pairs are complete
 - every key the helpers and cheat sheet reference exists

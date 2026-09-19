@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""EPUB Reader — the reading surface (owner E, CONTRACT §6).
+"""Book Reader — the reading surface (owner E, CONTRACT §6).
 
 ``ReaderPage`` is one ``QWidget`` that holds everything a reader sees while a
 book is open (product spec §3):
@@ -118,6 +118,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 import store as store_mod
 import strings
 import theme as theme_mod
+import bookformats
 from epublib import EpubBook, EpubError, SearchHit
 from store import Store, now_iso
 from strings import KEYS, S, duration, format_date, plural, tip
@@ -2519,6 +2520,8 @@ class ErrorCard(QFrame):
                           ("reveal", "remove", "close"), True),
         "toolarge": ("err.toolarge.title", "err.toolarge.body", ("reveal", "remove", "close"), True),
         "access": ("err.access.title", "err.access.body", ("reveal", "remove", "close"), True),
+        "unsupported": ("err.unsupported.title", "err.unsupported.body",
+                        ("reveal", "remove", "close"), True),
     }
     BUTTON_KEYS = {"reveal": "err.btn.reveal", "relocate": "err.btn.relocate",
                    "remove": "err.btn.remove", "close": "err.btn.close"}
@@ -2637,7 +2640,7 @@ class ErrorCard(QFrame):
         self.title.setVisible(bool(title_key))
         if kind == "drm":
             scheme = self.spec.get("drm_scheme")
-            if scheme in ("adept", "lcp"):
+            if scheme in ("adept", "lcp", "mobipocket"):
                 body = S("err.drm.body", kind=S(f"err.drm.{scheme}"))
             else:
                 body = S("err.drm.body.unknown")
@@ -3328,7 +3331,7 @@ def find_moved_file(old_path: str, size: int, bid: str, folders: Sequence[str]) 
             continue
         for entry in entries:
             try:
-                if not entry.is_file() or not entry.name.lower().endswith(".epub"):
+                if not entry.is_file() or not bookformats.is_book_file(entry.name):
                     continue
                 if os.path.normcase(os.path.abspath(entry.path)) == old_key:
                     continue
@@ -3691,14 +3694,14 @@ class ReaderPage(QWidget):
         if entry is None:
             entry = self.store.library_get(bid)
         try:
-            book = EpubBook.open(path)
+            book = bookformats.open_book(path, cache_root=self.store.cache_root, content_key=bid)
         except FileNotFoundError:
             self._missing(path, entry)
             return
         except EpubError as exc:
             kind = {"drm": "drm", "not_epub": "structure", "no_container": "structure",
                     "bad_opf": "structure_opf", "too_large": "toolarge",
-                    "corrupt": "corrupt"}.get(exc.kind, "unexpected")
+                    "corrupt": "corrupt", "unsupported": "unsupported"}.get(exc.kind, "unexpected")
             spec = self._spec(kind, path, entry, exc)
             spec["drm_scheme"] = exc.drm_scheme
             spec["book_id"] = (entry or {}).get("id") or bid
@@ -5623,7 +5626,7 @@ class ReaderPage(QWidget):
             except RuntimeError:
                 pass
 
-        threading.Thread(target=work, name="epub-reader-find-moved", daemon=True).start()
+        threading.Thread(target=work, name="book-reader-find-moved", daemon=True).start()
 
     def _on_worker_done(self, payload: Any) -> None:
         kind, serial, path, entry, found = payload

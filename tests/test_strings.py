@@ -57,7 +57,7 @@ class TablesTest(_StateGuard):
         self.assertEqual(strings.LANGUAGE_NAMES,
                          {"zh-Hans": "简体中文", "zh-Hant": "繁體中文", "en": "English", "ja": "日本語"})
         self.assertEqual(set(strings.TABLES), set(strings.LANGUAGES))
-        self.assertEqual(strings.APP_DISPLAY_NAME, "EPUB Reader")
+        self.assertEqual(strings.APP_DISPLAY_NAME, "Book Reader")
 
     def test_identical_key_sets(self) -> None:
         keys = [set(strings.TABLES[l]) for l in strings.LANGUAGES]
@@ -84,9 +84,9 @@ class TablesTest(_StateGuard):
 
     def test_spec_copy_for_zh_hans(self) -> None:
         self.use("zh-Hans")
-        self.assertEqual(S("title.book", title="从此岸到彼岸"), "从此岸到彼岸 — EPUB Reader")
-        self.assertEqual(S("title.library"), "EPUB Reader")
-        self.assertEqual(S("menu.about"), "关于 EPUB Reader")
+        self.assertEqual(S("title.book", title="从此岸到彼岸"), "从此岸到彼岸 — Book Reader")
+        self.assertEqual(S("title.library"), "Book Reader")
+        self.assertEqual(S("menu.about"), "关于 Book Reader")
         self.assertEqual(S("toc.synthetic"), "本书未提供目录，以下为章节文件")
         self.assertEqual(plural("search.count", 2371), "共 2371 处")
         self.assertEqual(S("search.capped", n=500), "仅显示前 500 处")
@@ -95,7 +95,7 @@ class TablesTest(_StateGuard):
         self.assertEqual(S("lib.found.add"), "添加到书架")
         self.assertEqual(S("lib.found.dismiss"), "不用了")
         self.assertEqual(S("err.drm.body", kind=S("err.drm.adept")),
-                         "检测到 Adobe ADEPT 加密。EPUB Reader 不解密受保护的文件，请用购买它的官方应用打开。")
+                         "检测到 Adobe ADEPT 加密。Book Reader 不解密受保护的文件，请用购买它的官方应用打开。")
         self.assertEqual(S("status.left.chapter", time=strings.duration(12)), "本章剩余 12 分钟")
         self.assertEqual(S("status.left.book", time=strings.duration(200)), "全书剩余 3 小时 20 分钟")
         self.assertEqual(S("set.language"), "界面语言")
@@ -137,7 +137,7 @@ class CheckerCatchesTest(unittest.TestCase):
         self.assertCaught(self.broken("en", "about.tagline", f"{RETIRED} reader"), "retired product name")
 
     def test_hard_coded_app_name(self) -> None:
-        self.assertCaught(self.broken("en", "about.tagline", "EPUB Reader is quiet"), "use {app}")
+        self.assertCaught(self.broken("en", "about.tagline", "Book Reader is quiet"), "use {app}")
 
     def test_exclamation_marks(self) -> None:
         self.assertCaught(self.broken("en", "status.copied", "Copied!"), "exclamation")
@@ -187,7 +187,7 @@ class CheckerCatchesTest(unittest.TestCase):
 class LookupTest(_StateGuard):
     def test_app_placeholder_is_automatic_and_overridable(self) -> None:
         self.use("en")
-        self.assertEqual(S("menu.about"), "About EPUB Reader")
+        self.assertEqual(S("menu.about"), "About Book Reader")
         self.assertEqual(S("menu.about", app="X"), "About X")
 
     def test_missing_key_strict_raises(self) -> None:

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""EPUB Reader — themes.  日 light / 纸 sepia / 夜 dark, plus follow-system.
+"""Book Reader — themes.  日 light / 纸 sepia / 夜 dark, plus follow-system.
 
 One set of colour tokens drives BOTH surfaces, so the Qt chrome and the book
 page are the same colour:

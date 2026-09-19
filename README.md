@@ -1,9 +1,20 @@
-# EPUB Reader
+# Book Reader
 
-A Windows desktop EPUB reader, written from scratch: no third-party EPUB library, nothing downloaded.
-Python 3.14 + PySide6 (Qt 6.11) with Chromium (QtWebEngine) rendering the pages, so a book's own CSS,
-fonts and images display the way the publisher intended.
+A Windows desktop e-book reader for **EPUB, Kindle (MOBI / AZW / AZW3) and DjVu**, written from
+scratch: no third-party e-book library or decoder, nothing downloaded. Python 3.14 + PySide6 (Qt 6.11)
+with Chromium (QtWebEngine) rendering the pages, so a book's own CSS, fonts and images display the way
+the publisher intended.
 
+- **Formats**
+  - **EPUB 2 / 3**: read directly.
+  - **MOBI, PRC, AZW, AZW3**: converted once to EPUB (from-scratch PalmDOC and HUFF/CDIC decompression,
+    classic MOBI and KF8 structure, fonts, covers, contents) and cached, so every feature below works.
+    Books without a real contents list get one built from their chapter headings (第…回 / CHAPTER …).
+    DRM-protected Kindle books are refused, never decrypted; KFX and Topaz are not supported.
+  - **DjVu**: a from-scratch decoder (JB2 masks with shared dictionaries, IW44 wavelet colour layers,
+    BZZ, the Z'-coder), written in C# and compiled on first use with the compiler built into Windows.
+    Scanned pages appear as fixed-layout pages with their OCR text laid invisibly over them, so search,
+    selection, copying and highlights work on scans too. A DjVu outline becomes the contents list.
 - **Opens real-world books**, including the awkward ones: EPUB 2 (NCX) and EPUB 3 (nav), Chinese text
   without mojibake, font obfuscation (not mistaken for DRM), hexadecimal NCX `playOrder`, broken XHTML,
   percent-encoded or Chinese file names inside the zip, fixed-layout books (scaled to fit).
@@ -21,10 +32,10 @@ fonts and images display the way the publisher intended.
 
 ```powershell
 .\run.ps1                          # opens the library
-.\run.ps1 "D:\Books\some book.epub" # opens a book
+.\run.ps1 "D:\Books\some book.epub" # opens a book (.epub .mobi .azw3 .azw .prc .djvu .djv)
 ```
 
-Or, once built, double-click `dist\EPUB Reader\EPUB Reader.exe`.
+Or, once built, double-click `dist\Book Reader\Book Reader.exe`.
 A second launch hands its book to the window that is already open.
 
 ## Build the .exe
@@ -33,9 +44,9 @@ A second launch hands its book to the window that is already open.
 .\build_exe.ps1
 ```
 
-Produces a one-folder bundle at `dist\EPUB Reader\` (keep the folder together; `EPUB Reader.exe` is inside).
+Produces a one-folder bundle at `dist\Book Reader\` (keep the folder together; `Book Reader.exe` is inside).
 
-### Optional: open .epub files with it
+### Optional: open book files with it by double-clicking
 
 ```powershell
 .\tools\install-file-association.ps1            # current user only (HKCU), no admin needed
@@ -43,15 +54,17 @@ Produces a one-folder bundle at `dist\EPUB Reader\` (keep the folder together; `
 .\tools\install-file-association.ps1 -Uninstall # undo exactly what it added
 ```
 
-This makes EPUB Reader available under *Open with*. Windows then asks once which app to use by default.
+This makes Book Reader available under *Open with* for .epub, .mobi, .azw3, .azw, .prc, .djvu and .djv
+(it never overrides an association another app already has). Windows then asks once per file type which
+app to use by default.
 
 ## Where your data lives
 
 | What | Where |
 |---|---|
-| Settings, library, positions, bookmarks, highlights | `%APPDATA%\EPUB Reader\` (plain JSON, atomic writes, `.bak` kept) |
-| Cover thumbnails (safe to delete) | `%LOCALAPPDATA%\EPUB Reader\cache\` |
-| Log | `%APPDATA%\EPUB Reader\logs\epub-reader.log` |
+| Settings, library, positions, bookmarks, highlights | `%APPDATA%\Book Reader\` (plain JSON, atomic writes, `.bak` kept) |
+| Cover thumbnails, and the cached EPUB versions of Kindle and DjVu books (safe to delete: rebuilt on demand) | `%LOCALAPPDATA%\Book Reader\cache\` |
+| Log | `%APPDATA%\Book Reader\logs\book-reader.log` |
 
 Books are identified by content hash, so a book you move or rename keeps its reading position and notes.
 
@@ -103,5 +116,9 @@ in `tests\fixtures\` and, if present, three real books from `Desktop\文件` (re
 | `theme.py` | Themes for both the Qt chrome and the page |
 | `strings.py`, `i18n/` | UI text in four languages (`python strings.py --check` verifies parity) |
 | `epub_reader.py` | Entry point: single instance, window, keyboard map |
+| `bookformats.py` | Opens any supported file (by content, not extension) as an EPUB; conversion cache |
+| `mobi.py` | Kindle MOBI / AZW / AZW3 to EPUB: PalmDB, PalmDOC, HUFF/CDIC, MOBI 6, KF8, heading-based contents |
+| `djvu.py` | DjVu as a fixed-layout EPUB with an OCR text layer; drives the decoder, renders pages on demand |
+| `djvutool/*.cs` | The DjVu decoder in C# (Z'-coder, BZZ, JB2, IW44, text zones, outline); `ZPTable.cs` is the spec's table, cross-checked against the reference decoder |
 
 Design notes: `docs/CONTRACT.md`, `docs/DECISIONS.md`, and the research reports in `docs/research/`.

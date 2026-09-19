@@ -1,6 +1,6 @@
 # `webhost.py` — API reference (owner D)
 
-The QtWebEngine host for EPUB Reader: the `epub://` URL scheme, the zip-backed
+The QtWebEngine host for Book Reader: the `epub://` URL scheme, the zip-backed
 request handler, the profile and its settings, the injected scripts, the
 JS↔Python bridge and the navigation policy.
 
@@ -113,7 +113,7 @@ if QUrl(href).scheme() in webhost.EXTERNAL_SCHEMES: ...
 
 ## 3. `class BookHost(QObject)`
 
-`BookHost(profile_name: str = "epub-reader", parent: QObject | None = None)`
+`BookHost(profile_name: str = "book-reader", parent: QObject | None = None)`
 
 Each reading surface gets one host. The host owns an **off-the-record**
 `QWebEngineProfile`, the `EpubSchemeHandler`, a request interceptor, the

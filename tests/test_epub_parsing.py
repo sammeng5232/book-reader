@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Test suite for the epub-reader parsing layer (`epublib`).
+"""Test suite for the book-reader parsing layer (`epublib`).
 
 stdlib `unittest` only - no pytest. Run it with::
 
-    powershell -ExecutionPolicy Bypass -File C:\\Users\\mengz\\epub-reader\\tests\\run_tests.ps1
+    powershell -ExecutionPolicy Bypass -File C:\\Users\\mengz\\book-reader\\tests\\run_tests.ps1
 
 or directly::
 
     C:\\Users\\mengz\\AppData\\Local\\Programs\\Python\\Python314\\python.exe ^
-        -m unittest discover -s C:\\Users\\mengz\\epub-reader\\tests -v
+        -m unittest discover -s C:\\Users\\mengz\\book-reader\\tests -v
 
 `epublib` does not exist yet. It is imported lazily so that, until it does,
 every test FAILS with an explanatory message instead of the whole module

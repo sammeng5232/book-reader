@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""From-scratch EPUB 2/3 parser for EPUB Reader. Standard library only.
+"""From-scratch EPUB 2/3 parser for Book Reader. Standard library only.
 
 This module is the foundation every other module reads through. It owns:
 

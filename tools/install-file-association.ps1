@@ -1,6 +1,7 @@
 ﻿<#
 ================================================================================
- install-file-association.ps1  --  make .epub open with EPUB Reader
+ install-file-association.ps1  --  make e-book files open with Book Reader
+ (.epub .mobi .azw3 .azw .prc .djvu .djv; the per-extension keys below repeat for each)
 ================================================================================
 
  SCOPE: CURRENT USER ONLY. Every key this script touches lives under HKCU.
@@ -9,30 +10,30 @@
 
  WHAT IT CREATES  (all under HKEY_CURRENT_USER)
 
-   Software\Classes\EPUBReader.Epub.1                     <- the ProgId
+   Software\Classes\BookReader.Book.1                     <- the ProgId
        (default)                  = "EPUB 电子书"
        FriendlyTypeName           = "EPUB 电子书"
        DefaultIcon                = "<exe>,0"
-       shell\open\(default)       = "Open with EPUB Reader" (in the Windows display language)
+       shell\open\(default)       = "Open with Book Reader" (in the Windows display language)
        shell\open\command         = "<exe>" "%1"
 
    Software\Classes\.epub
-       OpenWithProgids\EPUBReader.Epub.1 = ""             <- puts us in "Open with"
+       OpenWithProgids\BookReader.Book.1 = ""             <- puts us in "Open with"
        (the .epub key itself is created only if it does not already exist;
         an existing (default) value is left untouched)
 
-   Software\Classes\Applications\EPUB Reader.exe          <- friendly name in the
-       FriendlyAppName            = "EPUB Reader"            "Open with" picker
+   Software\Classes\Applications\Book Reader.exe          <- friendly name in the
+       FriendlyAppName            = "Book Reader"            "Open with" picker
        shell\open\command         = "<exe>" "%1"
        SupportedTypes\.epub       = ""
 
-   Software\EPUBReader\Capabilities                     <- Settings > Default apps
+   Software\BookReader\Capabilities                     <- Settings > Default apps
        ApplicationName / ApplicationDescription
-       FileAssociations\.epub     = "EPUBReader.Epub.1"
+       FileAssociations\.epub     = "BookReader.Book.1"
    Software\RegisteredApplications
-       EPUBReader                 = "Software\EPUBReader\Capabilities"
+       BookReader                 = "Software\BookReader\Capabilities"
 
-   Software\EPUBReader\Install                          <- bookkeeping so the
+   Software\BookReader\Install                          <- bookkeeping so the
        ExePath, InstalledAt, CreatedExtKey                 uninstall is precise
 
  Then it calls SHChangeNotify(SHCNE_ASSOCCHANGED) so Explorer picks the change
@@ -43,7 +44,7 @@
    It does not write HKCU\...\Explorer\FileExts\.epub\UserChoice. On Windows 10
    and 11 that value is protected by a per-user, per-extension hash; forging it
    is an anti-tamper bypass, and Windows silently discards or resets a forged
-   value anyway. So this script makes EPUB Reader *available* and the first
+   value anyway. So this script makes Book Reader *available* and the first
    double-click (or right-click > Open with > Choose another app > Always) makes
    it the default. That one click is the user's, as it should be.
 
@@ -62,7 +63,7 @@
 
    To inspect by hand afterwards:
 
-     reg query HKCU\Software\Classes\EPUBReader.Epub.1 /s
+     reg query HKCU\Software\Classes\BookReader.Book.1 /s
      reg query HKCU\Software\Classes\.epub /s
 
 ================================================================================
@@ -82,30 +83,29 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # --- identity ----------------------------------------------------------------
-$ProgId       = 'EPUBReader.Epub.1'        # = store.PROG_ID; ProgIds stay ASCII
-$AppRegName   = 'EPUBReader'               # RegisteredApplications entry
-$AppName      = 'EPUB Reader'              # must equal the exe's file name (Applications\<name>.exe)
-$Extension    = '.epub'
+$ProgId       = 'BookReader.Book.1'        # = store.PROG_ID; ProgIds stay ASCII
+$AppRegName   = 'BookReader'               # RegisteredApplications entry
+$AppName      = 'Book Reader'              # must equal the exe's file name (Applications\<name>.exe)
+# every format the app opens (bookformats.BOOK_EXTENSIONS)
+$Extensions   = @('.epub', '.mobi', '.azw3', '.azw', '.prc', '.djvu', '.djv')
 
 # Explorer labels follow the Windows display language, like the app's own 'auto' language.
 $uiCulture = (Get-UICulture).Name
 switch -Regex ($uiCulture) {
-    '^zh-(TW|HK|MO)|^zh-Hant' { $TypeName = 'EPUB 電子書'; $VerbName = "使用 $AppName 開啟"; $AppDesc = 'EPUB 電子書閱讀器'; break }
-    '^zh'                     { $TypeName = 'EPUB 电子书'; $VerbName = "使用 $AppName 打开"; $AppDesc = 'EPUB 电子书阅读器'; break }
-    '^ja'                     { $TypeName = 'EPUB 電子書籍'; $VerbName = "$AppName で開く"; $AppDesc = 'EPUB 電子書籍リーダー'; break }
-    default                   { $TypeName = 'EPUB Book'; $VerbName = "Open with $AppName"; $AppDesc = 'EPUB e-book reader' }
+    '^zh-(TW|HK|MO)|^zh-Hant' { $TypeName = '電子書'; $VerbName = "使用 $AppName 開啟"; $AppDesc = 'EPUB、Kindle 與 DjVu 電子書閱讀器'; break }
+    '^zh'                     { $TypeName = '电子书'; $VerbName = "使用 $AppName 打开"; $AppDesc = 'EPUB、Kindle 和 DjVu 电子书阅读器'; break }
+    '^ja'                     { $TypeName = '電子書籍'; $VerbName = "$AppName で開く"; $AppDesc = 'EPUB・Kindle・DjVu 電子書籍リーダー'; break }
+    default                   { $TypeName = 'E-book'; $VerbName = "Open with $AppName"; $AppDesc = 'E-book reader for EPUB, Kindle and DjVu files' }
 }
 
 $K_Classes    = 'HKCU:\Software\Classes'
 $K_ProgId     = "$K_Classes\$ProgId"
-$K_Ext        = "$K_Classes\$Extension"
-$K_ExtProgIds = "$K_Ext\OpenWithProgids"
 $K_App        = "$K_Classes\Applications\$AppName.exe"
-$K_Vendor     = 'HKCU:\Software\EPUBReader'
+$K_Vendor     = 'HKCU:\Software\BookReader'
 $K_Caps       = "$K_Vendor\Capabilities"
 $K_Install    = "$K_Vendor\Install"
 $K_RegApps    = 'HKCU:\Software\RegisteredApplications'
-$K_FileExts   = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$Extension"
+$K_FileExtsRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts'
 
 # --- output helpers ----------------------------------------------------------
 function Step ($m) { Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
@@ -176,7 +176,7 @@ public static extern void SHChangeNotify(int wEventId, uint uFlags, System.IntPt
 }
 
 Write-Host ""
-Write-Host "$AppName -- .epub file association (current user only)" -ForegroundColor White
+Write-Host "$AppName -- file association for $($Extensions -join ' ') (current user only)" -ForegroundColor White
 if ($DryRun) { Note "DRY RUN: nothing will be written." }
 
 # =============================================================================
@@ -185,28 +185,45 @@ if ($DryRun) { Note "DRY RUN: nothing will be written." }
 if ($Uninstall) {
     Step "Removing the association"
 
-    # Only drop the UserChoice if it is ours; never touch another app's default.
-    $uc = Get-StringValue "$K_FileExts\UserChoice" 'ProgId'
-    if ($uc -eq $ProgId) {
-        Info "UserChoice currently points at $ProgId -- clearing it"
-        Remove-Key "$K_FileExts\UserChoice"
-    }
-    elseif ($uc) {
-        Info "UserChoice belongs to '$uc' -- left alone"
-    }
+    foreach ($ext in $Extensions) {
+        $kFileExts = "$K_FileExtsRoot\$ext"
+        $kExt      = "$K_Classes\$ext"
 
-    Remove-Value "$K_FileExts\OpenWithProgids" $ProgId
-    Remove-Value $K_ExtProgIds $ProgId
+        # Only drop the UserChoice if it is ours; never touch another app's default.
+        $uc = Get-StringValue "$kFileExts\UserChoice" 'ProgId'
+        if ($uc -eq $ProgId) {
+            Info "$ext UserChoice currently points at $ProgId -- clearing it"
+            Remove-Key "$kFileExts\UserChoice"
+        }
+        elseif ($uc) {
+            Info "$ext UserChoice belongs to '$uc' -- left alone"
+        }
 
-    # Remove the .epub key itself only if WE created it and it is now empty.
-    $createdExt = Get-StringValue $K_Install 'CreatedExtKey'
-    if ($createdExt -eq '1' -and (Test-Path -LiteralPath $K_Ext)) {
-        $sub = @(Get-ChildItem -LiteralPath $K_Ext -ErrorAction SilentlyContinue)
-        $props = @()
-        $pp = Get-ItemProperty -LiteralPath $K_Ext -ErrorAction SilentlyContinue
-        if ($pp) { $props = @($pp.PSObject.Properties.Name | Where-Object { $_ -notlike 'PS*' }) }
-        if ($sub.Count -eq 0 -and $props.Count -eq 0) { Remove-Key $K_Ext }
-        else { Info "left $K_Ext in place (not empty)" }
+        Remove-Value "$kFileExts\OpenWithProgids" $ProgId
+        Remove-Value "$kExt\OpenWithProgids" $ProgId
+        # an OpenWithProgids key left empty would keep the extension key "not empty" forever
+        if ((Test-Path -LiteralPath "$kExt\OpenWithProgids") -and -not $DryRun) {
+            $left = Get-ItemProperty -LiteralPath "$kExt\OpenWithProgids" -ErrorAction SilentlyContinue
+            $names = @()
+            if ($left) { $names = @($left.PSObject.Properties.Name | Where-Object { $_ -notlike 'PS*' }) }
+            if ($names.Count -eq 0 -and @(Get-ChildItem -LiteralPath "$kExt\OpenWithProgids").Count -eq 0) {
+                Remove-Key "$kExt\OpenWithProgids"
+            }
+        }
+
+        # Remove the extension key itself only if WE created it and it is now empty.
+        $createdExt = Get-StringValue $K_Install "CreatedExtKey$ext"
+        if ($null -eq $createdExt -and $ext -eq '.epub') {
+            $createdExt = Get-StringValue $K_Install 'CreatedExtKey'       # installs made before v1.1
+        }
+        if ($createdExt -eq '1' -and (Test-Path -LiteralPath $kExt)) {
+            $sub = @(Get-ChildItem -LiteralPath $kExt -ErrorAction SilentlyContinue)
+            $props = @()
+            $pp = Get-ItemProperty -LiteralPath $kExt -ErrorAction SilentlyContinue
+            if ($pp) { $props = @($pp.PSObject.Properties.Name | Where-Object { $_ -notlike 'PS*' }) }
+            if ($sub.Count -eq 0 -and $props.Count -eq 0) { Remove-Key $kExt }
+            else { Info "left $kExt in place (not empty)" }
+        }
     }
 
     Remove-Key $K_ProgId
@@ -218,7 +235,7 @@ if ($Uninstall) {
 
     Write-Host ""
     Write-Host "  Removed. $script:Changes registry change(s)." -ForegroundColor Green
-    Write-Host "  .epub files are no longer associated with $AppName for this user."
+    Write-Host "  $($Extensions -join ' ') files are no longer associated with $AppName for this user."
     Write-Host ""
     exit 0
 }
@@ -252,35 +269,42 @@ Set-Value "$K_ProgId\DefaultIcon" ''    $Icon
 Set-Value "$K_ProgId\shell\open" ''     $VerbName
 Set-Value "$K_ProgId\shell\open\command" '' $Command
 
-Step "Advertising the extension"
-$createdExt = '0'
-if (-not (Test-Path -LiteralPath $K_Ext)) {
-    Ensure-Key $K_Ext | Out-Null
-    $createdExt = '1'
+Step "Advertising the extensions"
+$created = @{}
+foreach ($ext in $Extensions) {
+    $kExt = "$K_Classes\$ext"
+    $createdExt = '0'
+    if (-not (Test-Path -LiteralPath $kExt)) {
+        Ensure-Key $kExt | Out-Null
+        $createdExt = '1'
+    }
+    else {
+        Info "$kExt already exists -- leaving its (default) value alone"
+    }
+    # a re-install must not forget that an earlier run created this key
+    if ((Get-StringValue $K_Install "CreatedExtKey$ext") -eq '1') { $createdExt = '1' }
+    $created[$ext] = $createdExt
+    # The empty-string value under OpenWithProgids is what Windows 11 reads to build
+    # the "Open with" list. Do NOT overwrite the extension key's (default) value:
+    # that would hijack whatever reader the user already has.
+    Set-Value "$kExt\OpenWithProgids" $ProgId ''
 }
-else {
-    Info "$K_Ext already exists -- leaving its (default) value alone"
-}
-# The empty-string value under OpenWithProgids is what Windows 11 reads to build
-# the "Open with" list. Do NOT overwrite the extension key's (default) value:
-# that would hijack whatever reader the user already has.
-Set-Value $K_ExtProgIds $ProgId ''
 
 Step "Registering the application"
 Set-Value $K_App 'FriendlyAppName' $AppName
 Set-Value "$K_App\shell\open\command" '' $Command
-Set-Value "$K_App\SupportedTypes" $Extension ''
+foreach ($ext in $Extensions) { Set-Value "$K_App\SupportedTypes" $ext '' }
 
 Step "Listing in Settings > Default apps"
 Set-Value $K_Caps 'ApplicationName'        $AppName
 Set-Value $K_Caps 'ApplicationDescription' $AppDesc
-Set-Value "$K_Caps\FileAssociations" $Extension $ProgId
-Set-Value $K_RegApps $AppRegName 'Software\EPUBReader\Capabilities'
+foreach ($ext in $Extensions) { Set-Value "$K_Caps\FileAssociations" $ext $ProgId }
+Set-Value $K_RegApps $AppRegName 'Software\BookReader\Capabilities'
 
 Step "Recording bookkeeping for a clean uninstall"
 Set-Value $K_Install 'ExePath'       $ExePath
 Set-Value $K_Install 'InstalledAt'   (Get-Date).ToString('o')
-Set-Value $K_Install 'CreatedExtKey' $createdExt
+foreach ($ext in $Extensions) { Set-Value $K_Install "CreatedExtKey$ext" $created[$ext] }
 
 Step "Refreshing Explorer"
 Notify-Explorer
@@ -291,7 +315,8 @@ Write-Host ""
 Write-Host "  $AppName now appears under right-click > Open with." -ForegroundColor White
 Write-Host "  To make it the default, do it once from the shell (Windows will not let"
 Write-Host "  a script set the default for you):"
-Write-Host "      right-click an .epub > Open with > Choose another app > $AppName > Always"
+Write-Host "      right-click a book file > Open with > Choose another app > $AppName > Always"
+Write-Host "  (once per file type: .epub, .mobi, .azw3, .djvu ...)"
 Write-Host ""
 Write-Host "  Undo at any time:  .\tools\install-file-association.ps1 -Uninstall"
 Write-Host ""

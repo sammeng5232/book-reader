@@ -9,7 +9,7 @@ app starts, opens a book, paints something non-blank, and exits.
 Run it with the 3.14 interpreter::
 
     C:\\Users\\mengz\\AppData\\Local\\Programs\\Python\\Python314\\python.exe ^
-        C:\\Users\\mengz\\epub-reader\\tests\\smoke_gui.py --all
+        C:\\Users\\mengz\\book-reader\\tests\\smoke_gui.py --all
 
 Screenshots land in tests\\out\\smoke_<fixture>.png.
 

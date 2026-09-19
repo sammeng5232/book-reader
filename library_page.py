@@ -1,4 +1,4 @@
-"""library_page.py — the EPUB Reader shelf (owner F).
+"""library_page.py — the Book Reader shelf (owner F).
 
 Implements CONTRACT.md §7 and product-spec §3 "LIBRARY / START SCREEN":
 
@@ -71,6 +71,7 @@ from PySide6.QtWidgets import (
 
 import strings
 import theme as theme_mod
+import bookformats
 from epublib import EpubBook, EpubError
 from store import Store, now_iso
 from strings import S, duration, format_date, language_changed, plural, tip
@@ -170,9 +171,12 @@ def _norm_path(path: str) -> str:
     return os.path.normcase(os.path.abspath(path)) if path else ""
 
 
+_FORMAT_NAMES = {"epub": "EPUB", "mobi": "MOBI", "azw3": "AZW3", "djvu": "DjVu"}
+
+
 def is_epub_path(path: str) -> bool:
-    """True for a name ending in ``.epub`` (any case)."""
-    return str(path).lower().endswith(".epub")
+    """True for any supported book file name (see :data:`bookformats.BOOK_EXTENSIONS`)."""
+    return bookformats.is_book_file(str(path))
 
 
 def display_title(entry: dict) -> str:
@@ -799,7 +803,8 @@ def fit_cover_image(img: QImage, box_w: int, box_h: int, dpr: float = 1.0) -> QI
 # library entries from files (worker side)
 # ==========================================================================
 
-def read_library_entry(path: str, book_id: str, *, cover_file: str | None = None) -> dict:
+def read_library_entry(path: str, book_id: str, *, cover_file: str | None = None,
+                       cache_root: str | None = None) -> dict:
     """Build a ``library.json`` entry for *path* (read-only access to the file).
 
     Opens the book with :class:`epublib.EpubBook` for its metadata and, when
@@ -816,7 +821,7 @@ def read_library_entry(path: str, book_id: str, *, cover_file: str | None = None
         "verified_at": now_iso(), "missing": False, "drm": None,
     }
     try:
-        book = EpubBook.open(full)
+        book = bookformats.open_book(full, cache_root=cache_root, content_key=book_id)
     except EpubError as exc:
         if exc.kind == "drm":
             entry.update(title=stem, authors=[], drm=exc.drm_scheme or "unknown", cover="",
@@ -830,9 +835,12 @@ def read_library_entry(path: str, book_id: str, *, cover_file: str | None = None
             authors=[a for a in (_clean(x) for x in (md.get("authors") or [])) if a],
             publisher=_clean(md.get("publisher")),
             pubdate=_clean(md.get("date")),
-            language=_clean(md.get("language")),
+            language="" if _clean(md.get("language")) in ("und", "") else _clean(md.get("language")),
             identifier=_clean(md.get("identifier")),
-            epub_version=_clean(getattr(book, "version", "")),
+            format=_FORMAT_NAMES.get(getattr(book, "source_format", "epub"), "EPUB"),
+            # a converted book's package version says nothing about the user's file
+            epub_version=_clean(getattr(book, "version", ""))
+            if getattr(book, "source_format", "epub") == "epub" else "",
             layout="fixed" if book.is_fixed_layout else "reflowable",
             toc_source="spine" if book.toc_is_synthetic else "toc",
             spine_count=len(book.spine),
@@ -884,7 +892,8 @@ class _CoverResult:
 
 
 def _cover_job(emitter: _Emitter, cancel: threading.Event, bid: str, epub_path: str,
-               cover_file: str, box: tuple[int, int], dpr: float) -> None:
+               cover_file: str, box: tuple[int, int], dpr: float,
+               cache_root: str | None = None) -> None:
     if cancel.is_set():
         return
     res = _CoverResult(bid)
@@ -898,7 +907,7 @@ def _cover_job(emitter: _Emitter, cancel: threading.Event, bid: str, epub_path: 
             if not epub_path or not os.path.isfile(epub_path):
                 res.status = "missing"
             else:
-                with EpubBook.open(epub_path) as book:
+                with bookformats.open_book(epub_path, cache_root=cache_root, content_key=bid) as book:
                     data = book.cover_bytes()
                     mt = book.media_type(book.cover) if book.cover else ""
                 if not data:
@@ -982,7 +991,8 @@ def _add_job(emitter: _Emitter, cancel: threading.Event, store: Store, token: in
                     if open_after:
                         res.open_bid, res.open_path = bid, os.path.abspath(path)
                     continue
-                entry = read_library_entry(path, bid, cover_file=store.cover_path(bid))
+                entry = read_library_entry(path, bid, cover_file=store.cover_path(bid),
+                                           cache_root=store.cache_root)
                 res.new_entries.append(entry)
                 if open_after:
                     res.open_bid, res.open_path = bid, entry["path"]
@@ -1023,11 +1033,12 @@ def _missing_job(emitter: _Emitter, cancel: threading.Event, pairs: list[tuple[s
     _emit(emitter.checked, out)
 
 
-def _details_job(emitter: _Emitter, cancel: threading.Event, bid: str, path: str) -> None:
+def _details_job(emitter: _Emitter, cancel: threading.Event, bid: str, path: str,
+                 cache_root: str | None = None) -> None:
     info: dict[str, Any] = {}
     try:
         if path and os.path.isfile(path):
-            with EpubBook.open(path) as book:
+            with bookformats.open_book(path, cache_root=cache_root, content_key=bid) as book:
                 md = book.metadata or {}
                 info["description"] = _strip_html(md.get("description") or "")
                 info["subjects"] = [s for s in (_clean(x) for x in (md.get("subjects") or [])) if s]
@@ -1956,11 +1967,14 @@ class BookInfoDialog(QDialog):
             name = ql.nativeLanguageName() if ql.language() != QLocale.Language.C else ""
             add("info.language", name or code)
         add("info.identifier", e.get("identifier"))
+        add("info.format", e.get("format"))
         add("info.epub_version", e.get("epub_version"))
         if e.get("layout") in ("fixed", "reflowable"):
             add("info.layout", S("info.layout.fixed" if e["layout"] == "fixed" else "info.layout.reflowable"))
         if e.get("spine_count"):
-            add("info.chapters", loc.toString(int(e["spine_count"])))
+            # a DjVu book's spine is its scanned pages, not chapters
+            add("info.pages" if e.get("format") == "DjVu" else "info.chapters",
+                loc.toString(int(e["spine_count"])))
         if e.get("units_total"):
             add("info.units", S("info.units.value", n=loc.toString(int(e["units_total"]))))
         if e.get("size"):
@@ -2600,7 +2614,7 @@ class LibraryPage(QWidget):
             self._cover_state[bid] = "pending"
             path, cover_file = str(e.get("path") or ""), self._store.cover_path(bid)
             self._pool.start(functools.partial(_cover_job, self._emitter, self._cancel, bid, path,
-                                               cover_file, COVER_SIZE, dpr))
+                                               cover_file, COVER_SIZE, dpr, self._store.cache_root))
 
     def _on_cover(self, res: _CoverResult) -> None:
         if self._shut:
@@ -3074,7 +3088,7 @@ class LibraryPage(QWidget):
         self._info_dialogs[bid] = dlg
         dlg.show()
         self._pool.start(functools.partial(_details_job, self._emitter, self._cancel, bid,
-                                           str(e.get("path") or "")))
+                                           str(e.get("path") or ""), self._store.cache_root))
         return dlg
 
     def _on_details(self, payload: tuple[str, dict]) -> None:

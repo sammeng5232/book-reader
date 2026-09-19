@@ -1,4 +1,4 @@
-# EPUB Reader — i18n glossary
+# Book Reader — i18n glossary
 
 Canonical terms for every recurring concept, in the four UI languages. Translators of `i18n/zh_Hant.py` and
 `i18n/ja.py` follow this file. `python strings.py --check` enforces part of it mechanically: script (no Simplified
@@ -104,7 +104,7 @@ Notes:
 - Quiet, plain and declarative. No exclamation marks, no emoji, no marketing adjectives.
 - Errors say what happened and what to do next. They never blame the reader.
 - Keep every `{placeholder}` exactly as in the English table. `{app}` is filled in automatically, so never write the product name into copy.
-- Product name `EPUB Reader`, language endonyms and shortcut labels (`Ctrl+F`, `F11`, arrow glyphs) are never translated.
+- Product name `Book Reader`, language endonyms and shortcut labels (`Ctrl+F`, `F11`, arrow glyphs) are never translated.
 - Use the single character `…` when a command opens a dialog or needs more input.
 - Put a path on its own line, after a sentence ending in a colon. Never inline it with quotes.
 - `.one` / `.other` keys: English uses both. Chinese and Japanese have no grammatical plural, so both values are identical.

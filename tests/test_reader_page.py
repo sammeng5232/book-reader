@@ -43,7 +43,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 FIXTURES = os.path.join(HERE, "fixtures")
-DEFAULT_OUT = os.path.join(tempfile.gettempdir(), "epub-reader-reader-page")
+DEFAULT_OUT = os.path.join(tempfile.gettempdir(), "book-reader-reader-page")
 REAL_BOOKS = [
     r"C:\Users\mengz\Desktop\文件\Econ Books\Econ Books_China\从此岸到彼岸_人民币汇率如何实现清洁浮动_缪延亮.epub",
     r"C:\Users\mengz\Desktop\文件\Econ Books\50人的二十年_樊纲 易纲等.epub",

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Generate the EPUB test corpus for the epub-reader project.
+"""Generate the EPUB test corpus for the book-reader project.
 
 stdlib only. Deterministic: same bytes every run (fixed zip timestamps, no
 randomness, no hashes of wall-clock data). Run with the 3.14 interpreter:
 
     C:\\Users\\mengz\\AppData\\Local\\Programs\\Python\\Python314\\python.exe ^
-        C:\\Users\\mengz\\epub-reader\\tests\\make_fixtures.py
+        C:\\Users\\mengz\\book-reader\\tests\\make_fixtures.py
 
 Options:
     --list      print the fixture inventory and exit

@@ -1,25 +1,25 @@
 # `store.py` — API (owner B)
 
-Persistence for EPUB Reader: human-readable JSON under `%APPDATA%\EPUB Reader\`, atomic writes, `.bak`
+Persistence for Book Reader: human-readable JSON under `%APPDATA%\Book Reader\`, atomic writes, `.bak`
 generations, corrupt-file quarantine, integer schema migrations, one serialized writer thread.
 Stdlib only; importing it has no side effects. Tests: `tests/test_store.py` (38 tests).
 
 ```
-%APPDATA%\EPUB Reader\settings.json           debounced 500 ms, plus on quit
-%APPDATA%\EPUB Reader\library.json            250 ms after add/remove, 60 s for progress churn
-%APPDATA%\EPUB Reader\books\<id>.json(.bak)   position 2000 ms; bookmarks/highlights IMMEDIATELY
-%APPDATA%\EPUB Reader\logs\epub-reader.log    written by owner G
-%LOCALAPPDATA%\EPUB Reader\cache\covers\<id>.jpg
+%APPDATA%\Book Reader\settings.json           debounced 500 ms, plus on quit
+%APPDATA%\Book Reader\library.json            250 ms after add/remove, 60 s for progress churn
+%APPDATA%\Book Reader\books\<id>.json(.bak)   position 2000 ms; bookmarks/highlights IMMEDIATELY
+%APPDATA%\Book Reader\logs\book-reader.log    written by owner G
+%LOCALAPPDATA%\Book Reader\cache\covers\<id>.jpg
 ```
 
 ## Identity constants — import these, never retype them
 
 | Symbol | Value |
 |---|---|
-| `APP_DIR_NAME` | `"EPUB Reader"` — folder name under %APPDATA%/%LOCALAPPDATA%, and the Qt org/app name |
-| `PROG_ID` | `"EPUBReader.Epub.1"` |
-| `PIPE_NAME` | `"epub-reader-single-instance"` |
-| `LOG_FILE_NAME` | `"epub-reader.log"` |
+| `APP_DIR_NAME` | `"Book Reader"` — folder name under %APPDATA%/%LOCALAPPDATA%, and the Qt org/app name |
+| `PROG_ID` | `"BookReader.Book.1"` |
+| `PIPE_NAME` | `"book-reader-single-instance"` |
+| `LOG_FILE_NAME` | `"book-reader.log"` |
 | `LEGACY_DIR_NAME` | the retired development name. Used only to find a dev build's folder to migrate. |
 
 ```python
@@ -53,12 +53,12 @@ All computed from `os.environ` (`APPDATA` / `LOCALAPPDATA`), **never** `QStandar
 
 | Function | Returns |
 |---|---|
-| `app_dir() -> str` | `%APPDATA%\EPUB Reader` |
-| `cache_dir() -> str` | `%LOCALAPPDATA%\EPUB Reader\cache` |
+| `app_dir() -> str` | `%APPDATA%\Book Reader` |
+| `cache_dir() -> str` | `%LOCALAPPDATA%\Book Reader\cache` |
 | `cover_dir(cache_root=None) -> str` | `<cache>\covers` |
 | `books_dir(root=None) -> str` | `<root>\books` |
 | `log_dir(root=None) -> str` | `<root>\logs` |
-| `log_file(root=None) -> str` | `<root>\logs\epub-reader.log` |
+| `log_file(root=None) -> str` | `<root>\logs\book-reader.log` |
 
 ```python
 handler = RotatingFileHandler(log_file(), maxBytes=1 << 20, backupCount=3, encoding="utf-8")
@@ -67,8 +67,8 @@ handler = RotatingFileHandler(log_file(), maxBytes=1 << 20, backupCount=3, encod
 ### `migrate_legacy_dirs(appdata=None, localappdata=None) -> list[str]`
 
 This is the one-time move required by DECISIONS.md §1. If `<APPDATA>\<LEGACY_DIR_NAME>` exists and
-`<APPDATA>\EPUB Reader` does **not**, it moves the Local cache first and then the state root (the rename is
-the commit point). It then renames `logs\<legacy>.log*` to `epub-reader.log*`. Once the new root exists it
+`<APPDATA>\Book Reader` does **not**, it moves the Local cache first and then the state root (the rename is
+the commit point). It then renames `logs\<legacy>.log*` to `book-reader.log*`. Once the new root exists it
 returns `[]` without looking at the legacy location again. If the rename fails because a file is locked, it
 copies the tree via a `.migrating` staging dir and leaves the original in place. It never raises and never
 deletes anything. It returns notes for the log.
@@ -120,8 +120,8 @@ Policy constants: `SETTINGS_DEBOUNCE_MS = 500`, `POSITION_DEBOUNCE_MS = 2000`, `
 Store(root: str | None = None, *, cache_root: str | None = None, start_writer: bool = True)
 ```
 
-* `root=None` uses `%APPDATA%\EPUB Reader` and runs `migrate_legacy_dirs()` first. Its cache is
-  `%LOCALAPPDATA%\EPUB Reader\cache`.
+* `root=None` uses `%APPDATA%\Book Reader` and runs `migrate_legacy_dirs()` first. Its cache is
+  `%LOCALAPPDATA%\Book Reader\cache`.
 * An explicit `root` makes the cache default to `<root>\cache`, so a test store never touches the real
   profile. **Every test must pass a temp root.**
 * Thread-safe. One daemon writer thread coalesces writes per path. An `atexit` safety net flushes if

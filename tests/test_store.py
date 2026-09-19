@@ -10,7 +10,7 @@ Run::
 Every test uses a temporary root.  As a second guard, ``APPDATA`` and
 ``LOCALAPPDATA`` are pointed at a temporary directory for the duration of the
 module, and the module asserts afterwards that the user's real
-``%APPDATA%\\EPUB Reader`` was not created by this run.
+``%APPDATA%\\Book Reader`` was not created by this run.
 
 Covers the six verified failure modes from docs/research/product-spec.md
 (clean roundtrip, .bak creation, truncated primary recovered from .bak, both
@@ -75,10 +75,10 @@ def tearDownModule() -> None:  # noqa: N802
     shutil.rmtree(_GUARD_DIR, ignore_errors=True)
     if not _REAL_ROOT_EXISTED:
         assert not os.path.exists(os.path.join(REAL_APPDATA, S.APP_DIR_NAME)), \
-            "test run created the REAL %APPDATA%\\EPUB Reader"
+            "test run created the REAL %APPDATA%\\Book Reader"
     if not _REAL_CACHE_EXISTED:
         assert not os.path.exists(os.path.join(REAL_LOCALAPPDATA, S.APP_DIR_NAME)), \
-            "test run created the REAL %LOCALAPPDATA%\\EPUB Reader"
+            "test run created the REAL %LOCALAPPDATA%\\Book Reader"
 
 
 def sample_highlight() -> dict:
@@ -125,23 +125,42 @@ class TempRootCase(unittest.TestCase):
 
 class IdentityTests(unittest.TestCase):
     def test_constants(self) -> None:
-        self.assertEqual(S.APP_DIR_NAME, "EPUB Reader")
-        self.assertEqual(S.PROG_ID, "EPUBReader.Epub.1")
-        self.assertEqual(S.PIPE_NAME, "epub-reader-single-instance")
-        self.assertEqual(S.LOG_FILE_NAME, "epub-reader.log")
+        self.assertEqual(S.APP_DIR_NAME, "Book Reader")
+        self.assertEqual(S.PROG_ID, "BookReader.Book.1")
+        self.assertEqual(S.PIPE_NAME, "book-reader-single-instance")
+        self.assertEqual(S.LOG_FILE_NAME, "book-reader.log")
         self.assertNotIn(" ", S.PROG_ID)
 
     def test_locations_come_from_environment(self) -> None:
-        self.assertEqual(S.app_dir(), os.path.join(os.environ["APPDATA"], "EPUB Reader"))
+        self.assertEqual(S.app_dir(), os.path.join(os.environ["APPDATA"], "Book Reader"))
         self.assertEqual(S.cache_dir(),
-                         os.path.join(os.environ["LOCALAPPDATA"], "EPUB Reader", "cache"))
-        self.assertEqual(S.log_file(r"X:\r"), os.path.join(r"X:\r", "logs", "epub-reader.log"))
+                         os.path.join(os.environ["LOCALAPPDATA"], "Book Reader", "cache"))
+        self.assertEqual(S.log_file(r"X:\r"), os.path.join(r"X:\r", "logs", "book-reader.log"))
 
     def test_no_retired_name_outside_migration_constant(self) -> None:
+        """Retired names (EPUB Reader, Verso) may appear in code only as LEGACY_* constants."""
+        import ast
         with open(os.path.join(ROOT, "store.py"), encoding="utf-8") as f:
-            lines = [ln for ln in f if S.LEGACY_DIR_NAME.lower() in ln.lower()]
-        self.assertEqual(len(lines), 1, lines)
-        self.assertIn("LEGACY_DIR_NAME", lines[0])
+            tree = ast.parse(f.read())
+        retired = [n.lower() for n in S.LEGACY_DIR_NAMES] + [n.lower() for n in S.LEGACY_LOG_NAMES]
+        offenders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if any(r in node.value.lower() for r in retired):
+                    offenders.append(node)
+        allowed = set()
+        for node in ast.walk(tree):                     # the LEGACY_* definitions themselves
+            if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "").startswith("LEGACY_"):
+                allowed |= {id(c) for c in ast.walk(node)}
+        docstrings = set()
+        for node in ast.walk(tree):                     # docstrings describe the migration
+            body = getattr(node, "body", None)
+            if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
+                    and isinstance(getattr(body[0], "value", None), ast.Constant):
+                docstrings.add(id(body[0].value))
+        bad = [n.value[:60] for n in offenders if id(n) not in allowed and id(n) not in docstrings]
+        self.assertEqual(bad, [])
+        self.assertEqual(S.LEGACY_DIR_NAMES, ("EPUB Reader", "Verso"))
 
 
 # ==========================================================================
@@ -243,7 +262,7 @@ class FailureModeTests(TempRootCase):
         self.assertTrue(any("MIGRATED(0->1)" in n for n in st.load_notes), st.load_notes)
         on_disk = read_raw(path)                                   # written back
         self.assertEqual(on_disk["schema"], 1)
-        self.assertEqual(on_disk["app"], "EPUB Reader")
+        self.assertEqual(on_disk["app"], "Book Reader")
         self.assertEqual(on_disk["ui"]["language"], "zh-Hans")
         self.assertEqual(read_raw(path + ".bak"), legacy)          # original kept
 
@@ -478,7 +497,7 @@ class SettingsTests(TempRootCase):
         self.assertEqual(st.settings.reader.font_size_px, 21)
         self.assertIsNone(st.get("themes"))
         self.assertIsNone(st.get("highlight_colors"))
-        self.assertEqual(st.get("app"), "EPUB Reader")
+        self.assertEqual(st.get("app"), "Book Reader")
 
     def test_language_values(self) -> None:
         self.assertEqual(S.normalize_language("zh"), "zh-Hans")
@@ -502,7 +521,7 @@ class SettingsTests(TempRootCase):
     def test_legacy_en_value_in_existing_file(self) -> None:
         os.makedirs(self.root, exist_ok=True)
         with open(os.path.join(self.root, "settings.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": 1, "app": "EPUB Reader", "ui": {"language": "en"},
+            json.dump({"schema": 1, "app": "Book Reader", "ui": {"language": "en"},
                        "reader": {"theme": "paper"}}, f)
         st = self.make()
         self.assertEqual(st.get("ui.language"), "en")
@@ -679,9 +698,9 @@ class LegacyMigrationTests(unittest.TestCase):
         self.assertEqual(len(notes), 2, notes)
         self.assertFalse(os.path.exists(self.old))
         self.assertFalse(os.path.exists(os.path.join(self.local, S.LEGACY_DIR_NAME)))
-        self.assertTrue(os.path.exists(os.path.join(self.local, "EPUB Reader", "cache", "covers", "aa.jpg")))
-        self.assertTrue(os.path.exists(os.path.join(self.new, "logs", "epub-reader.log")))
-        self.assertTrue(os.path.exists(os.path.join(self.new, "logs", "epub-reader.log.1")))
+        self.assertTrue(os.path.exists(os.path.join(self.local, "Book Reader", "cache", "covers", "aa.jpg")))
+        self.assertTrue(os.path.exists(os.path.join(self.new, "logs", "book-reader.log")))
+        self.assertTrue(os.path.exists(os.path.join(self.new, "logs", "book-reader.log.1")))
         self.assertFalse(any(S.LEGACY_DIR_NAME.lower() in n.lower() for n in os.listdir(os.path.join(self.new, "logs"))))
         # a legacy dir that reappears later is ignored: the new root exists
         os.makedirs(self.old)
@@ -689,11 +708,39 @@ class LegacyMigrationTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(self.old))
         # the migrated state opens normally and is normalized
         with S.Store(self.new) as st:
-            self.assertEqual(st.get("app"), "EPUB Reader")
+            self.assertEqual(st.get("app"), "Book Reader")
             self.assertEqual(st.get("ui.language"), "zh-Hans")
             self.assertEqual(st.get("reader.theme"), "sepia")
             self.assertEqual(st.get("reader.font_size_px"), 24)
             self.assertEqual(st.book_state("aa")["highlights"][0]["note"], NOTE)
+
+    def test_v1_epub_reader_state_migrates_to_book_reader(self) -> None:
+        """v1.0 stored everything under "EPUB Reader"; v1.1 renamed the app."""
+        shutil.rmtree(self.old)                                  # only the v1.0 layout this time
+        v1 = os.path.join(self.appdata, "EPUB Reader")
+        os.makedirs(os.path.join(v1, "books"))
+        os.makedirs(os.path.join(v1, "logs"))
+        os.makedirs(os.path.join(self.local, "EPUB Reader", "cache", "converted"))
+        with open(os.path.join(v1, "books", "bb.json"), "w", encoding="utf-8") as f:
+            json.dump({"schema": 1, "book_id": "bb", "highlights": [{"id": "h2", "note": NOTE}]},
+                      f, ensure_ascii=False)
+        with open(os.path.join(v1, "logs", "epub-reader.log"), "w", encoding="utf-8") as f:
+            f.write("v1 log")
+        notes = S.migrate_legacy_dirs(self.appdata, self.local)
+        self.assertTrue(notes)
+        self.assertFalse(os.path.exists(v1))
+        with open(os.path.join(self.new, "books", "bb.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["highlights"][0]["note"], NOTE)     # nothing lost
+        self.assertTrue(os.path.exists(os.path.join(self.new, "logs", "book-reader.log")))
+        self.assertTrue(os.path.isdir(os.path.join(self.local, "Book Reader", "cache", "converted")))
+        # the older development directory is left alone once a newer one was migrated
+        self.assertEqual(S.migrate_legacy_dirs(self.appdata, self.local), [])
+
+    def test_newest_legacy_name_wins(self) -> None:
+        os.makedirs(os.path.join(self.appdata, "EPUB Reader", "books"))
+        S.migrate_legacy_dirs(self.appdata, self.local)
+        self.assertTrue(os.path.isdir(self.old))                 # Verso untouched
+        self.assertTrue(os.path.isdir(os.path.join(self.new, "books")))
 
     def test_existing_new_root_is_never_overwritten(self) -> None:
         os.makedirs(self.new)
@@ -724,7 +771,7 @@ class LegacyMigrationTests(unittest.TestCase):
         try:
             with S.Store() as st:
                 self.assertEqual(st.root, self.new)
-                self.assertEqual(st.cache_root, os.path.join(self.local, "EPUB Reader", "cache"))
+                self.assertEqual(st.cache_root, os.path.join(self.local, "Book Reader", "cache"))
                 self.assertTrue(st.migration_notes)
                 self.assertEqual(st.get("ui.language"), "zh-Hans")
         finally:

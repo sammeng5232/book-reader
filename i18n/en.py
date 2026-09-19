@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""English UI strings for EPUB Reader.
+"""English UI strings for Book Reader.
 
 Rules (see docs/i18n-glossary.md and docs/DECISIONS.md section 2):
   * Commands (menu items, buttons, context-menu items, dialog titles, tab
@@ -238,7 +238,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "This book uses vertical text, so it opens in scrolling mode",
     "status.link.missing": "This link points to something that is not in the book",
     "status.save_failed": "Could not save reading data. It will be tried again shortly.",
-    "status.drop.unsupported": "Only EPUB files can be opened",
+    "status.drop.unsupported": "Only EPUB, MOBI, AZW3 and DjVu files can be opened",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "under 1 min",
@@ -318,7 +318,7 @@ TABLE: dict[str, str] = {
 
     # ---- library: empty and no-match states ----
     "lib.empty.title": "The library is empty",
-    "lib.empty.body": "Drag EPUB files here, or",
+    "lib.empty.body": "Drag book files here, or",
     "lib.nomatch": "No matching books",
 
     # ---- library: found-books suggestion card ----
@@ -333,7 +333,7 @@ TABLE: dict[str, str] = {
     "lib.adding.other": "Adding {n} files…",
     "lib.added.one": "Added {n} book",
     "lib.added.other": "Added {n} books",
-    "lib.added.none": "No EPUB files were found",
+    "lib.added.none": "No book files were found",
     "lib.add_failed.one": "{n} file could not be added",
     "lib.add_failed.other": "{n} files could not be added",
     "lib.already": "This book is already in the library",
@@ -376,6 +376,8 @@ TABLE: dict[str, str] = {
     "info.identifier": "Identifier",
     "info.description": "Description",
     "info.subjects": "Subjects",
+    "info.format": "Format",
+    "info.pages": "Pages",
     "info.epub_version": "EPUB version",
     "info.layout": "Layout",
     "info.layout.reflowable": "Reflowable",
@@ -414,19 +416,20 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "Open Book",
-    "dlg.open.filter": "EPUB books (*.epub)",
+    "dlg.open.filter": "Books (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
     "dlg.all_files": "All files (*)",
     "dlg.folder.title": "Choose a Folder",
     "dlg.relocate.title": "Locate “{title}”",
 
     # ---- error cards ----
     "err.corrupt.title": "Can't open this book",
-    "err.corrupt.body": "The file may be damaged, or it may not be an EPUB.",
+    "err.corrupt.body": "The file may be damaged, or it may not be a supported book format.",
     "err.drm.title": "This book is protected by DRM",
     "err.drm.body": "It uses {kind} encryption. {app} does not decrypt protected files. Open it in the app from the store where you bought it.",
     "err.drm.body.unknown": "It uses an encryption scheme that could not be identified. {app} does not decrypt protected files. Open it in the app from the store where you bought it.",
     "err.drm.adept": "Adobe ADEPT",
     "err.drm.lcp": "Readium LCP",
+    "err.drm.mobipocket": "Kindle (Mobipocket)",
     "err.missing.title": "Can't find this file",
     "err.missing.body": "“{title}” was last at:",
     "err.missing.searching": "Looking for the file…",
@@ -437,6 +440,8 @@ TABLE: dict[str, str] = {
     "err.toolarge.body": "Its uncompressed contents exceed the safety limit, so {app} will not open it.",
     "err.access.title": "Can't read this file",
     "err.access.body": "Another program may be using it, or reading it may not be permitted.",
+    "err.unsupported.title": "This format isn't supported",
+    "err.unsupported.body": "{app} can open EPUB, MOBI, AZW3 and DjVu files. This file uses a format it doesn't support, such as Kindle KFX or Topaz.",
     "err.unexpected.body": "Something unexpected happened while opening it. The technical details show the cause.",
     "err.section": "This section can't be displayed",
     "err.details": "Technical Details",
@@ -456,8 +461,8 @@ TABLE: dict[str, str] = {
     "err.crash.open_log": "Open Log Folder",
 
     # ---- command line ----
-    "cli.usage": "Usage: {exe} [EPUB file]",
-    "cli.description": "Opens an EPUB book, or the library when no file is given.",
+    "cli.usage": "Usage: {exe} [book file]",
+    "cli.description": "Opens an EPUB, MOBI, AZW3 or DjVu book, or the library when no file is given.",
     "cli.help": "Show this help and exit",
     "cli.not_found": "File not found: {path}",
 
@@ -513,7 +518,7 @@ TABLE: dict[str, str] = {
 
     # ---- about ----
     "about.title": "About {app}",
-    "about.tagline": "A quiet EPUB reader",
+    "about.tagline": "A quiet e-book reader",
     "about.version": "Version {version}",
     "about.built": "Built with Python {py} and Qt {qt}",
     "about.storage": "Your library and highlights are stored in:",

@@ -1,5 +1,5 @@
 /* ===========================================================================
-   EPUB Reader — assets/reader.js
+   Book Reader — assets/reader.js
    The in-page reading engine (owner C).  webhost.py (owner D) injects this file
    into every book document at DocumentCreation, in ApplicationWorld (isolated
    from any script the book carries), and Python drives it through

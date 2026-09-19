@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""日本語 UI strings for EPUB Reader.
+"""日本語 UI strings for Book Reader.
 
 Rules (see docs/i18n-glossary.md and docs/DECISIONS.md section 2):
   * Japanese UI conventions: 開く, 閉じる, 設定, 目次, しおり, 検索, 表示,
@@ -243,7 +243,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "この本は縦書きのため、スクロール表示で開いています",
     "status.link.missing": "リンク先がこの本の中にありません",
     "status.save_failed": "読書データを保存できなかったため、まもなく自動で再試行します",
-    "status.drop.unsupported": "開けるのは EPUB ファイルのみです",
+    "status.drop.unsupported": "開けるのは EPUB、MOBI、AZW3、DjVu ファイルだけです",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "1分未満",
@@ -323,7 +323,7 @@ TABLE: dict[str, str] = {
 
     # ---- library: empty and no-match states ----
     "lib.empty.title": "本棚は空です",
-    "lib.empty.body": "EPUB ファイルをここにドラッグするか、下のボタンから追加できます",
+    "lib.empty.body": "電子書籍ファイルをここにドラッグするか、",
     "lib.nomatch": "一致する本はありません",
 
     # ---- library: found-books suggestion card ----
@@ -338,7 +338,7 @@ TABLE: dict[str, str] = {
     "lib.adding.other": "{n}個のファイルを追加しています…",
     "lib.added.one": "{n}冊の本を追加しました",
     "lib.added.other": "{n}冊の本を追加しました",
-    "lib.added.none": "EPUB ファイルが見つかりませんでした",
+    "lib.added.none": "電子書籍ファイルが見つかりませんでした",
     "lib.add_failed.one": "{n}個のファイルを追加できませんでした",
     "lib.add_failed.other": "{n}個のファイルを追加できませんでした",
     "lib.already": "この本はすでに本棚にあります",
@@ -381,6 +381,8 @@ TABLE: dict[str, str] = {
     "info.identifier": "識別子",
     "info.description": "内容紹介",
     "info.subjects": "ジャンル",
+    "info.format": "形式",
+    "info.pages": "ページ数",
     "info.epub_version": "EPUB バージョン",
     "info.layout": "レイアウト",
     "info.layout.reflowable": "リフロー型",
@@ -419,19 +421,20 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "本を開く",
-    "dlg.open.filter": "EPUB 電子書籍 (*.epub)",
+    "dlg.open.filter": "電子書籍 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
     "dlg.all_files": "すべてのファイル (*)",
     "dlg.folder.title": "フォルダーの選択",
     "dlg.relocate.title": "『{title}』の場所を指定",
 
     # ---- error cards ----
     "err.corrupt.title": "この本を開けません",
-    "err.corrupt.body": "ファイルが破損しているか、EPUB 形式ではない可能性があります。",
+    "err.corrupt.body": "ファイルが壊れているか、対応していない形式の可能性があります。",
     "err.drm.title": "この本は DRM で保護されています",
     "err.drm.body": "{kind} で暗号化されています。{app} は保護されたファイルの暗号化を解除しません。購入したストアのアプリで開いてください。",
     "err.drm.body.unknown": "識別できない方式で暗号化されています。{app} は保護されたファイルの暗号化を解除しません。購入したストアのアプリで開いてください。",
     "err.drm.adept": "Adobe ADEPT",
     "err.drm.lcp": "Readium LCP",
+    "err.drm.mobipocket": "Kindle（Mobipocket）",
     "err.missing.title": "このファイルが見つかりません",
     "err.missing.body": "『{title}』は以前、次の場所にありました：",
     "err.missing.searching": "ファイルを探しています…",
@@ -442,6 +445,8 @@ TABLE: dict[str, str] = {
     "err.toolarge.body": "展開後のサイズが安全上の上限を超えているため、{app} では開きません。",
     "err.access.title": "このファイルを読み込めません",
     "err.access.body": "ほかのプログラムが使用中か、読み取りが許可されていない可能性があります。",
+    "err.unsupported.title": "この形式には対応していません",
+    "err.unsupported.body": "{app} で開けるのは EPUB、MOBI、AZW3、DjVu ファイルです。このファイルは対応していない形式（Kindle の KFX や Topaz など）です。",
     "err.unexpected.body": "開くときに予期しない問題が発生しました。原因は「技術的な詳細」で確認できます。",
     "err.section": "この部分は表示できません",
     "err.details": "技術的な詳細",
@@ -461,8 +466,8 @@ TABLE: dict[str, str] = {
     "err.crash.open_log": "ログフォルダーを開く",
 
     # ---- command line ----
-    "cli.usage": "使い方：{exe} [EPUB ファイル]",
-    "cli.description": "EPUB 電子書籍を開きます。ファイルを指定しない場合は本棚を表示します。",
+    "cli.usage": "使い方：{exe} [電子書籍ファイル]",
+    "cli.description": "EPUB、MOBI、AZW3、DjVu の電子書籍を開きます。ファイルを指定しない場合は本棚を表示します。",
     "cli.help": "このヘルプを表示して終了",
     "cli.not_found": "ファイルが見つかりません：{path}",
 
@@ -518,7 +523,7 @@ TABLE: dict[str, str] = {
 
     # ---- about ----
     "about.title": "{app} について",
-    "about.tagline": "静かに読むための EPUB リーダー",
+    "about.tagline": "静かな電子書籍リーダー",
     "about.version": "バージョン {version}",
     "about.built": "Python {py} と Qt {qt} を使用",
     "about.storage": "本棚とハイライトの保存場所：",

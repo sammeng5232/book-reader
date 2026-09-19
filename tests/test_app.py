@@ -4,7 +4,7 @@
 
 Every GUI check launches the REAL app in a child process
 (``tests/app_driver.py`` -> ``epub_reader.main``) with APPDATA and LOCALAPPDATA
-pointed at temporary folders, so the user's ``%APPDATA%\\EPUB Reader`` is never
+pointed at temporary folders, so the user's ``%APPDATA%\\Book Reader`` is never
 read or written.  Windows appear briefly on screen and every child quits
 through the app's own quit path (a watchdog kills a stuck one).  The user's
 three books are opened read-only in place.  Screenshots go to ``tests\\out\\app``.
@@ -38,7 +38,7 @@ OUT = os.path.join(HERE, "out", "app")
 DRIVER = os.path.join(HERE, "app_driver.py")
 ENTRY = os.path.join(ROOT, "epub_reader.py")
 FIXTURES = os.path.join(HERE, "fixtures")
-PIPE_PATH = r"\\.\pipe\epub-reader-single-instance"
+PIPE_PATH = r"\\.\pipe\book-reader-single-instance"
 USER_BASE = os.environ.get("PYTHONUSERBASE") or site.getuserbase()
 SKIP_GUI = os.environ.get("EPUB_READER_SKIP_GUI_TESTS", "") == "1"
 
@@ -68,10 +68,10 @@ class Sandbox:
 
     @property
     def state_root(self) -> str:
-        return os.path.join(self.appdata, "EPUB Reader")
+        return os.path.join(self.appdata, "Book Reader")
 
     def log_text(self) -> str:
-        path = os.path.join(self.state_root, "logs", "epub-reader.log")
+        path = os.path.join(self.state_root, "logs", "book-reader.log")
         try:
             return open(path, encoding="utf-8", errors="replace").read()
         except OSError:
@@ -82,7 +82,7 @@ class Sandbox:
 
 
 def pipe_busy() -> bool:
-    """True when some EPUB Reader (possibly the user's own) is listening already."""
+    """True when some Book Reader (possibly the user's own) is listening already."""
     try:
         return os.path.exists(PIPE_PATH)
     except OSError:
@@ -204,7 +204,7 @@ class AppNoGui(unittest.TestCase):
     def test_single_instance_pipe_name(self) -> None:
         import store
 
-        self.assertEqual(store.PIPE_NAME, "epub-reader-single-instance")
+        self.assertEqual(store.PIPE_NAME, "book-reader-single-instance")
 
 
 @unittest.skipIf(SKIP_GUI, "EPUB_READER_SKIP_GUI_TESTS=1")
@@ -213,7 +213,7 @@ class AppGui(unittest.TestCase):
 
     def setUp(self) -> None:
         if pipe_busy():
-            self.skipTest("another EPUB Reader is running (its pipe exists); not touching it")
+            self.skipTest("another Book Reader is running (its pipe exists); not touching it")
 
     def assertRows(self, res: dict) -> None:  # noqa: N802
         failed = [f"{n}: {d}" for n, ok, d in res.get("rows", []) if not ok]
@@ -250,6 +250,15 @@ class AppGui(unittest.TestCase):
         box = Sandbox("real")
         try:
             self._run("real", box)
+            self.assertEqual(log_problems(box.log_text()), [])
+        finally:
+            box.cleanup()
+
+    def test_c2_other_formats(self) -> None:
+        """MOBI / AZW3 (Project Gutenberg) and DjVu (Internet Archive) samples in the real app."""
+        box = Sandbox("formats")
+        try:
+            self._run("formats", box)
             self.assertEqual(log_problems(box.log_text()), [])
         finally:
             box.cleanup()

@@ -1,4 +1,4 @@
-"""EPUB Reader — QtWebEngine host: custom ``epub://`` scheme, zip-backed request
+"""Book Reader — QtWebEngine host: custom ``epub://`` scheme, zip-backed request
 handler, profile/settings, script injection and the JS↔Python bridge.
 
 ===============================================================================
@@ -998,7 +998,7 @@ def _make_script(
 # ===========================================================================
 
 class BookPage(QWebEnginePage):
-    """``QWebEnginePage`` with EPUB Reader's navigation policy.
+    """``QWebEnginePage`` with Book Reader's navigation policy.
 
     Overriding a C++ virtual in PySide6 requires *subclassing* — assigning the
     method onto an instance never reaches the vtable (verified).
@@ -1131,7 +1131,7 @@ class BookHost(QObject):
     #: :meth:`set_book` finished: the new origin host (``"book"`` for ``None``).
     bookChanged = Signal(str)
 
-    def __init__(self, profile_name: str = "epub-reader",
+    def __init__(self, profile_name: str = "book-reader",
                  parent: QObject | None = None) -> None:
         super().__init__(parent)
         register_epub_scheme()  # cheap, idempotent, and a loud safety net
@@ -1164,8 +1164,8 @@ class BookHost(QObject):
         profile = QWebEngineProfile()
         profile.setObjectName(profile_name)
         agent = profile.httpUserAgent()
-        if "EPUBReader/" not in agent:
-            profile.setHttpUserAgent(f"{agent} EPUBReader/1.0")
+        if "BookReader/" not in agent:
+            profile.setHttpUserAgent(f"{agent} BookReader/1.0")
 
         self.handler = EpubSchemeHandler(profile)
         profile.installUrlSchemeHandler(EPUB_SCHEME, self.handler)

@@ -5,7 +5,7 @@
 Run directly (prints a PASS/FAIL table, exit code 0 = all PASS)::
 
     C:\\Users\\mengz\\AppData\\Local\\Programs\\Python\\Python314\\python.exe ^
-        C:\\Users\\mengz\\epub-reader\\tests\\test_webhost.py
+        C:\\Users\\mengz\\book-reader\\tests\\test_webhost.py
 
 Under ``unittest`` discovery the live run happens in a CHILD process (QtWebEngine
 must be initialised before any QApplication, and a GUI must not leak into the
@@ -421,7 +421,7 @@ def run_live(T: Table) -> int:
     T.info("timing.BookHost()", f"{(time.perf_counter() - t0) * 1000:.0f} ms (profile construction)")
 
     view = QWebEngineView()
-    view.setWindowTitle("EPUB Reader - webhost test")
+    view.setWindowTitle("Book Reader - webhost test")
     view.resize(760, 520)
     view.move(60, 60)
     host.attach(view)

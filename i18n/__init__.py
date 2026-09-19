@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""EPUB Reader UI string tables, one module per language.
+"""Book Reader UI string tables, one module per language.
 
 Nothing here is looked up directly by UI code; go through :mod:`strings`
 (``from strings import S``).  This package only gathers the four tables:

@@ -1,0 +1,109 @@
+<!doctype html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh">
+<head><meta charset="utf-8"/><title>Torture chapter</title>
+<style id="book-css">
+/* --- deliberately hostile "book" CSS --- */
+html { height: 100%; overflow: auto; }
+body { margin: 5%; padding: 2em; height: auto; overflow: hidden !important;
+       font-family: "Times New Roman", serif; font-size: 16px; line-height: 1.4;
+       background: #fffbee; color: #222; columns: 2; column-gap: 1em; }
+p { text-indent: 2em; margin: 0 0 .4em; }
+.poem { text-indent: 0; margin-left: 3em; white-space: pre-line; font-style: italic; }
+.smallcaps { font-variant: small-caps; letter-spacing: .08em; }
+h1 { page-break-before: always; break-before: page; font-size: 2em; }
+h2 { break-after: avoid; font-size: 1.5em; }
+figure { break-inside: avoid; margin: 1em 0; text-align: center; }
+figure img { width: 100%; height: auto; }
+.tallbox { height: 150vh; background: #cde; border: 2px solid #348; }
+.fixedthing { position: fixed; top: 4px; right: 4px; background: #f33; color: #fff;
+              padding: 2px 6px; z-index: 99; }
+.floaty { float: left; width: 40%; margin: 0 1em 1em 0; }
+.abs { position: absolute; left: 10px; top: 200px; background: #0a0; color: #fff; }
+pre { background: #eee; padding: .5em; overflow: auto; font-family: Consolas, monospace;
+      font-size: .85em; }
+table { border-collapse: collapse; width: 1400px; }
+td, th { border: 1px solid #999; padding: 4px 8px; white-space: nowrap; }
+.bigimg { display: block; width: 900px; height: 1400px; }
+blockquote { margin: 1em 2em; font-style: italic; border-left: 3px solid #bbb; padding-left: 1em; }
+code { font-family: Consolas, monospace; background: #eee; }
+</style>
+</head>
+<body>
+<div class="fixedthing" id="fixed1">FIXED BADGE</div>
+<div class="abs" id="abs1">ABS BOX</div>
+
+<h1 id="ch1">第一章　论排版之难</h1>
+
+<p id="p1" class="first">This is a deliberately very long paragraph intended to run across
+several columns so that we can measure how fragmentation behaves. Lorem ipsum dolor sit amet,
+consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat
+nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt
+mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem
+accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis
+et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas
+sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem
+sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur,
+adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam
+aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis
+suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur.</p>
+
+<p id="p2">中文段落测试。汉字排版需要合适的行高与字距，通常正文行高在一点七到两倍之间较为舒适。
+标点符号如「，。；：」在行首行尾的处理也很重要，需要避免标点出现在行首。这一段刻意写得比较长，
+以便观察在分栏排版下中文段落如何跨栏断开，以及首行缩进两个字符是否被保留。中文与English混排时，
+两侧应有适当的间隙。数字如１２３４５和 12345 的宽度也不同。再来一些内容以拉长段落：
+春江潮水连海平，海上明月共潮生。滟滟随波千万里，何处春江无月明。江流宛转绕芳甸，月照花林皆似霰。
+空里流霜不觉飞，汀上白沙看不见。江天一色无纤尘，皎皎空中孤月轮。江畔何人初见月？江月何年初照人？
+人生代代无穷已，江月年年只相似。不知江月待何人，但见长江送流水。</p>
+
+<div class="poem" id="poem1">床前明月光，
+疑是地上霜。
+举头望明月，
+低头思故乡。</div>
+
+<p class="smallcaps" id="sc1">Small caps and letter spacing should survive theming.</p>
+
+<figure id="fig1"><img class="bigimg" id="img1"
+  src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='1400'%3E%3Crect width='900' height='1400' fill='%23446'/%3E%3Ctext x='450' y='700' fill='white' font-size='90' text-anchor='middle'%3ETALL 900x1400%3C/text%3E%3C/svg%3E"/>
+<figcaption>A very tall figure that cannot fit in one column.</figcaption></figure>
+
+<div class="tallbox" id="tall1">tallbox height:150vh</div>
+
+<p id="p3">Text after the tall box. <span class="floaty" id="flo1">FLOATED SIDEBAR floated left at 40% width with several words of text inside it to give it height.</span>
+More running text that wraps around the float and keeps going for a while so the float actually
+matters. Additional filler words here to push the line count up a bit more and more and more.</p>
+
+<pre id="pre1">def a_very_long_function_name_that_never_wraps(argument_one, argument_two, argument_three, argument_four):
+    return argument_one + argument_two + argument_three + argument_four  # trailing comment made long on purpose
+short()
+</pre>
+
+<table id="tbl1"><tr><th>Column A</th><th>Column B</th><th>Column C</th><th>Column D</th><th>Column E</th><th>Column F</th></tr>
+<tr><td>a very wide cell value</td><td>another wide cell</td><td>third wide cell</td><td>fourth wide cell</td><td>fifth wide cell</td><td>sixth wide cell</td></tr></table>
+
+<blockquote id="bq1">A quotation in italics that the reader should not flatten.
+<cite>— Somebody</cite></blockquote>
+
+<svg id="svg1" width="300" height="200" viewBox="0 0 300 200"><circle cx="150" cy="100" r="80" fill="#c60"/></svg>
+
+<h2 id="h2a">A subsection</h2>
+<p id="p4">More text after the subsection heading. <code id="code1">inline_code_sample()</code> and
+<em>emphasis</em> plus <strong>strong</strong> and a <a href="#ch1" id="lnk1">link</a> and a
+footnote reference<a epub:type="noteref" href="#fn1" id="nr1" xmlns:epub="http://www.idpf.org/2007/ops"><sup>[1]</sup></a>.</p>
+
+<p id="p5">Filler paragraph five. Lorem ipsum dolor sit amet consectetur adipiscing elit sed do
+eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam quis nostrud.
+Filler paragraph five continues with more and more words to consume vertical space in columns.</p>
+<p id="p6">Filler paragraph six. Lorem ipsum dolor sit amet consectetur adipiscing elit sed do
+eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam quis nostrud.</p>
+<p id="p7">Filler paragraph seven with yet more words to make the document long enough that we get
+a decent number of columns to page through during the tests.</p>
+<p id="p8">Filler paragraph eight with yet more words to make the document long enough that we get
+a decent number of columns to page through during the tests. Repeat repeat repeat repeat repeat.</p>
+
+<aside epub:type="footnote" id="fn1" xmlns:epub="http://www.idpf.org/2007/ops">
+<p>1. This is the footnote body text that should appear in a popover instead of jumping.</p></aside>
+
+<p id="last">THE END OF THE CHAPTER MARKER</p>
+</body></html>

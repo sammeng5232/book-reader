@@ -1,18 +1,13 @@
-# Build output
+# Build output. dist/ ships as a zip on GitHub Releases instead: Qt6WebEngineCore.dll
+# alone exceeds GitHub's 100 MB per-file limit. build/ is PyInstaller's scratch space.
 build/
 dist/
 *.spec.bak
 __pycache__/
 *.py[cod]
 
-# Prototype / scratch dirs from development
-_proto/
-_proto2/
+# Scratch
 _scratch/
-
-# Test output
-tests/out/
-tests/fixtures/*.epub
 
 # Editor / OS
 .vscode/

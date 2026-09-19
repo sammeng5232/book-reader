@@ -1,0 +1,121 @@
+Qt 6.11.1  Python 3.14.6  QApplication up at 679 ms
+
+====================================================================================================================
+CHECK                                                     STATUS  DETAIL
+--------------------------------------------------------------------------------------------------------------------
+scheme.registered.name                                    PASS    got=b'epub' want=b'epub'
+scheme.syntax                                             PASS    got=<Syntax.Host: 2> want=<Syntax.Host: 2>
+scheme.flag.SecureScheme                                  PASS    got=True want=True
+scheme.flag.LocalScheme                                   PASS    got=True want=True
+scheme.flag.LocalAccessAllowed                            PASS    got=True want=True
+scheme.flag.CorsEnabled                                   PASS    got=True want=True
+scheme.flag.FetchApiAllowed                               PASS    got=True want=True
+scheme.flag.ViewSourceAllowed                             PASS    got=False want=False
+scheme.flag.NoAccessAllowed                               PASS    got=False want=False
+handler.installed                                         PASS    <__main__.ZipSchemeHandler(0x25034f46910) at 0x0000025030086D00>
+profile.offTheRecord                                      PASS    
+settings.JavascriptEnabled                                PASS    got=True want=True
+settings.LocalContentCanAccessFileUrls                    PASS    got=False want=False
+settings.LocalContentCanAccessRemoteUrls                  PASS    got=False want=False
+settings.LocalStorageEnabled                              PASS    got=True want=True
+settings.PdfViewerEnabled                                 PASS    got=False want=False
+settings.ShowScrollBars                                   PASS    got=False want=False
+settings.FocusOnNavigationEnabled                         PASS    got=True want=True
+settings.ErrorPageEnabled                                 PASS    got=False want=False
+page.backgroundColor                                      PASS    got='#123456' want='#123456'
+qwebchannel.js.fromQrc                                    PASS    len=16509 path=:/qtwebchannel/qwebchannel.js
+profile.scripts.count                                     PASS    got=2 want=2
+load.ch1.loadFinished                                     PASS    288 ms
+probe.ch1.returned                                        PASS    
+doc.title                                                 PASS    got='Proto Chapter One' want='Proto Chapter One'
+doc.href                                                  PASS    got='epub://book/OEBPS/text/ch1.xhtml' want='epub://book/OEBPS/text/ch1.xhtml'
+doc.origin                                                PASS    got='epub://book' want='epub://book'
+doc.contentType                                           PASS    got='application/xhtml+xml' want='application/xhtml+xml'
+doc.namespace                                             PASS    got='http://www.w3.org/1999/xhtml' want='http://www.w3.org/1999/xhtml'
+css.relative.applied                                      PASS    got='rgb(1, 2, 3)' want='rgb(1, 2, 3)'
+css.body.background                                       PASS    got='rgb(17, 34, 51)' want='rgb(17, 34, 51)'
+img.png.naturalWidth                                      PASS    got=120 want=120
+img.png.naturalHeight                                     PASS    got=60 want=60
+img.jpeg.naturalWidth                                     PASS    got=90 want=90
+img.jpeg.naturalHeight                                    PASS    got=45 want=45
+font.face.loaded                                          PASS    faces=['ProtoFont:loaded']
+font.document.fonts.check                                 PASS    check=True status=loaded
+font.metrics.differ                                       PASS    proto=192 fallback=231.09
+script.DocumentCreation.ran                               PASS    readyState at injection=loading docEl=True head=True
+script.DocumentReady.ran                                  PASS    readyState=interactive
+script.injectedStyle.present                              PASS    injectedAt readyState=loading
+script.injectedStyle.overrides.bookCss                    PASS    got='rgb(7, 7, 7)' want='rgb(7, 7, 7)'
+xhtml.createElementNS.works                               PASS    got='rgb(12, 12, 12)' want='rgb(12, 12, 12)'
+xhtml.plainCreateElement.alsoWorks                        PASS    got='rgb(11, 11, 11)' want='rgb(11, 11, 11)'
+fetch.status                                              PASS    got=200 want=200
+fetch.body.ok                                             PASS    len=641 type=basic err=None
+xhr.status                                                PASS    got=200 want=200
+response.additionalHeaderVisible                          PASS    got='oebps/styles/main.css' want='oebps/styles/main.css'
+handler.served[OEBPS/text/ch1.xhtml]                      PASS    
+handler.served[OEBPS/styles/main.css]                     PASS    
+handler.served[OEBPS/images/pic.png]                      PASS    
+handler.served[OEBPS/images/photo.jpg]                    PASS    
+handler.served[OEBPS/fonts/proto.ttf]                     PASS    
+handler.misses                                            PASS    got=[] want=[]
+handler.errors                                            PASS    got=[] want=[]
+paint.entries(measuredInsideInjectedProbe)                INFO    [] resources=0 readyState=complete
+timing.navigation(in-page)                                INFO    responseEnd=135ms DCL=201ms load=275ms resources=0
+devicePixelRatio                                          INFO    1
+fonts.atDocumentReady                                     INFO    status=loading check=False faces=['ProtoFont:loading']
+paint.entriesRecorded                                     PASS    [['first-paint', 324], ['first-contentful-paint', 324]]
+resourceTiming.onFirstNavigation                          INFO    count=0 names=[] (empty on a cold renderer -- expected)
+timing.firstContentfulPaint(in-page ms from nav start)    INFO    {'first-paint': 324, 'first-contentful-paint': 324}
+webchannel.handshake                                      PASS    
+webchannel.js->py->js.echo                                PASS    got='py:hello-from-js' want='py:hello-from-js'
+webchannel.py.received.echo                               PASS    calls=1
+webchannel.js->py.report                                  PASS    reports=1 bytes=1172
+webchannel.report.payload.intact                          PASS    got='Proto Chapter One' want='Proto Chapter One'
+webchannel.py->js.signal                                  PASS    got='tick-42' want='tick-42'
+runJavaScript.scalarResult                                PASS    got='scalar-ok' want='scalar-ok'
+runJavaScript.arrayResultIsEmptyString                    PASS    got='' want=''
+runJavaScript.jsonRoundTrip                               PASS    got={'a': [1, 2], 'b': 'x', 'c': True} want={'a': [1, 2], 'b': 'x', 'c': True}
+world.app.sees.__proto                                    PASS    got='object' want='object'
+world.main.blind.to.__proto                               PASS    got='undefined' want='undefined'
+world.app.blind.to.mainSentinel                           PASS    got='undefined' want='undefined'
+chromium.flags.--js-flags=--expose-gc                     INFO    typeof gc in MainWorld = 'function'
+csp.blocksBookInlineScript(ch1)                           PASS    got='undefined' want='undefined'
+csp.injectedStyleSurvives(needs style-src unsafe-inline)  PASS    themeApplied='rgb(7, 7, 7)'
+page.toHtml.hasBookMarkup                                 PASS    len=1045
+nav.ch2.loadFinished                                      PASS    114 ms
+nav.ch2.href                                              PASS    got='epub://book/OEBPS/text/ch2.xhtml' want='epub://book/OEBPS/text/ch2.xhtml'
+nav.ch2.title                                             PASS    got='Proto Chapter Two' want='Proto Chapter Two'
+nav.ch2.ownRelativeCss                                    PASS    got='rgb(4, 5, 6)' want='rgb(4, 5, 6)'
+nav.ch2.scriptsReinjected                                 PASS    
+handler.served[OEBPS/styles/ch2.css]                      PASS    
+csp.absent.bookInlineScriptRuns(ch2)                      PASS    got='boolean' want='boolean'
+bg.documentBackground(ch2)                                INFO    html='rgba(0, 0, 0, 0)' body='rgba(0, 0, 0, 0)'
+bg.pageBackgroundColorIsWhatPaints                        PASS    pixel=#123456 page.backgroundColor=#123456 grab=900x700
+bg.QScreen.grabWindow(winId).comparison                   INFO    #151515
+stress.survived                                           PASS    12 loads, 78 sub-resource requests served, 2383 ms total
+stress.handler.errors                                     PASS    got=[] want=[]
+stress.handler.misses                                     PASS    got=[] want=[]
+stress.final.pngWidth                                     PASS    got=120 want=120
+stress.final.jpgWidth                                     PASS    got=90 want=90
+stress.final.cssColor                                     PASS    got='rgb(1, 2, 3)' want='rgb(1, 2, 3)'
+stress.final.themeColor                                   PASS    got='rgb(7, 7, 7)' want='rgb(7, 7, 7)'
+paint.entriesOnWarmRenderer                               PASS    [['first-paint', 176], ['first-contentful-paint', 176]]
+resourceTiming.withFileUrlsDenied(secure default)         PASS    got=0 want=0
+resourceTiming.withFileUrlsAllowed                        PASS    count=3 names=['pic.png', 'photo.jpg', 'proto.ttf'] -- proves the ONLY cause is LocalContentCanAccessFileUrls
+settings.restored.LocalContentCanAccessFileUrls           PASS    got=False want=False
+missing.resource.loadFails                                PASS    loadFinished(ok=False) with ErrorPageEnabled=False
+missing.resource.recorded                                 PASS    missed=['OEBPS/text/nope.xhtml']
+env.QTWEBENGINE_CHROMIUM_FLAGS                            INFO    --js-flags=--expose-gc --disable-features=Translate
+timing.importToViewReady                                  INFO    1951 ms
+timing.profileConstruct                                   INFO    1268.2 ms
+timing.firstLoadFinished(cold)                            INFO    288 ms
+timing.totalProcess                                       INFO    6802 ms
+handler.totalRequestsServed                               INFO    102
+js.console                                                INFO    [JavaScriptConsoleMessageLevel.ErrorMessageLevel] ch1.xhtml:17 Refused to execute inline script because it violates the following Content Security Policy directive: "script-src 'none'". Either the 'unsafe-inline' keyword, a hash ('sha256-UwYTgd2DL2VSvb2lK6wO/b4I03bZjGCTyEkh5D7kH3c='), or a nonce ('nonce-...') is required to enable inline execution.
+ | [JavaScriptConsoleMessageLevel.ErrorMessageLevel] ch1.xhtml:17 Refused to execute inline script because it violates the following Content Security Policy directive: "script-src 'none'". Either the 'unsafe-inline' keyword, a hash ('sha256-UwYTgd2DL2VSvb2lK6wO/b4I03bZjGCTyEkh5D7kH3c='), or a nonce ('nonce-...') is required to enable inline execution.
+ | [JavaScriptConsoleMessageLevel.ErrorMessageLevel] ch1.xhtml:17 Refused to execute inline script because it violates the following Content Security Policy directive: "script-src 'none'". Either the 'unsafe-inline' keyword, a hash ('sha256-UwYTgd2DL2VSvb2lK6wO/b4I03bZjGCTyEkh5D7kH3c='), or a nonce ('nonce-...') is required to enable inline execution.
+ | [JavaScriptConsoleMessageLevel.ErrorMessageLevel] ch1.xhtml:17 Refused to execute inline script because it violates the following Content Security Policy directive: "script-src 'none'". Either the 'unsafe-inline' keyword, a hash ('sha256-UwYTgd2DL2VSvb2lK6wO/b4I03bZjGCTyEkh5D7kH3c='), or a nonce ('nonce-...') is required to enable inline execution.
+ | [JavaScriptConsoleMessageLevel.ErrorMessageLevel] ch1.xhtml:17 Refused to execute inline script because it violates the following Content Security Policy directive: "script-src 'none'". Either the 'unsafe-inline' keyword, a hash ('sha256-UwYTgd2DL2VSvb2lK6wO/b4I03bZjGCTyEkh5D7kH3c='), or a nonce ('nonce-...') is required to enable inline execution.
+ | [JavaScriptConsoleMessageLevel.ErrorMessageLevel] ch1.xhtml:17 Refused to execute inline script because it violates the following Content Security Policy directive: "script-src 'none'". Either the 'unsafe-inline' keyword, a hash ('sha256-UwYTgd2DL2VSvb2lK6wO/b4I03bZjGCTyEkh5D7kH3c='), or a nonce ('nonce-...') is required to enable inline execution.
+
+====================================================================================================================
+PASS=92  FAIL=0  INFO=16

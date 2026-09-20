@@ -27,6 +27,28 @@ the publisher intended.
 - **Library**: covers (or generated ones), continue-reading row, sort and search, add whole folders.
   Books stay where they are. The app never copies, moves or deletes your files.
 - **Interface language**: 简体中文 / 繁體中文 / English / 日本語, switchable live in settings (or follow Windows).
+- **Convert to LaTeX and PDF** (reader "…" menu, or right-click a book in the library):
+  - EPUB, MOBI, AZW, AZW3 become an editable LaTeX project (`<title>.tex` plus `images\`) and a PDF typeset
+    with XeLaTeX: chapters and contents from the book's own table of contents, footnotes, tables, lists,
+    pictures, links, ruby. Chinese uses `ctexbook`, Japanese/Korean xeCJK; fonts are picked by checking which
+    installed font actually has every character. Page size (A5, A4, B5, Letter, 6×9 in) and text size are
+    chosen in the dialog. The PDF needs XeLaTeX (MiKTeX or TeX Live); without it the `.tex` is still written.
+  - DjVu becomes a PDF directly (no LaTeX): the scan's layers are kept (Group 4 text masks over JPEG
+    backgrounds) and the OCR text is laid invisibly over each page, so the PDF can be searched and copied.
+  - TeX runs in a private temporary folder, so no `.aux`/`.log`/`.out` files are left next to the output.
+
+## Android
+
+`android\` holds the phone version. It **reads** EPUB / MOBI / AZW / AZW3 in a WebView
+running the same `reader.js` engine as the desktop (scroll or paginated, themes,
+backgrounds, font size, font family, contents), and **reads DjVu directly** with a
+from-scratch Kotlin decoder (continuous vertical scroll, pinch to zoom) — no conversion
+needed.  It also **converts** books to LaTeX + PDF (and DjVu straight to searchable PDF)
+entirely offline: a TeX engine ([Tectonic](https://github.com/tectonic-typesetting/tectonic))
+and the LaTeX packages are carried inside the APK.  Converted files are written to the
+public `Downloads/Book Reader/` folder so a file manager can find them.  The Python
+modules are shared with this project rather than rewritten.  Build instructions and the
+emulator recipe are in [android/README.md](android/README.md).
 
 ## Run
 
@@ -119,6 +141,9 @@ in `tests\fixtures\` and, if present, three real books from `Desktop\文件` (re
 | `bookformats.py` | Opens any supported file (by content, not extension) as an EPUB; conversion cache |
 | `mobi.py` | Kindle MOBI / AZW / AZW3 to EPUB: PalmDB, PalmDOC, HUFF/CDIC, MOBI 6, KF8, heading-based contents |
 | `djvu.py` | DjVu as a fixed-layout EPUB with an OCR text layer; drives the decoder, renders pages on demand |
+| `latexexport.py` | Any EPUB-backed book to LaTeX (XHTML/CSS → LaTeX, font planning from font character maps) and XeLaTeX typesetting in a temp folder |
+| `djvupdf.py` | DjVu straight to PDF: mixed-raster pages (Group 4 masks, JPEG backgrounds), invisible OCR text, outline |
+| `convert_dialog.py` | The convert dialog, background job, progress and result windows |
 | `djvutool/*.cs` | The DjVu decoder in C# (Z'-coder, BZZ, JB2, IW44, text zones, outline); `ZPTable.cs` is the spec's table, cross-checked against the reference decoder |
 
 Design notes: `docs/CONTRACT.md`, `docs/DECISIONS.md`, and the research reports in `docs/research/`.

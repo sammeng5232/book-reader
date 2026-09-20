@@ -112,7 +112,8 @@ class DjvuTool:
 
     def __init__(self, path: str) -> None:
         self.path = os.path.abspath(path)
-        self._lock = threading.Lock()
+        # re-entrant: a failed start calls close() while request() still holds the lock
+        self._lock = threading.RLock()
         self._proc: subprocess.Popen | None = None
 
     def _start(self) -> None:

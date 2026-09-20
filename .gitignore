@@ -2,6 +2,7 @@
 # alone exceeds GitHub's 100 MB per-file limit. build/ is PyInstaller's scratch space.
 build/
 dist/
+release/
 *.spec.bak
 __pycache__/
 *.py[cod]

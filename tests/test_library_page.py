@@ -461,8 +461,9 @@ class LibraryPageTests(unittest.TestCase):
         menu = self.page.build_context_menu(e["id"])
         acts = [a for a in menu.actions()]
         labels = [a.text().split("\t")[0] for a in acts if not a.isSeparator()]
-        self.assertEqual(labels, ["打开", "在文件夹中显示", "复制文件路径", "书籍信息", "从书架移除"])
-        self.assertTrue(acts[4].isSeparator())
+        self.assertEqual(labels, ["打开", "在文件夹中显示", "复制文件路径", "书籍信息", "转换为 LaTeX 和 PDF…",
+                                  "从书架移除"])
+        self.assertTrue(acts[5].isSeparator())
         self.assertFalse(any(re.search(r"删除|delete", t, re.I) for t in labels))
         self.assertTrue(all(a.shortcut().isEmpty() for a in acts))
         by = {a.objectName(): a for a in acts}

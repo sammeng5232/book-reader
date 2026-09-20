@@ -3037,11 +3037,34 @@ class LibraryPage(QWidget):
         a = menu.addAction(S("lib.ctx.info"))
         a.setObjectName("ctx.info")
         a.triggered.connect(lambda: self.show_book_info(bid))
+        djvu = str(e.get("format") or "").lower() == "djvu" or path.lower().endswith((".djvu", ".djv"))
+        a = menu.addAction(S("menu.convert_pdf" if djvu else "menu.convert"))
+        a.setObjectName("ctx.convert")
+        a.setEnabled(bool(path) and os.path.isfile(path))
+        a.triggered.connect(lambda: self.convert_book(bid))
         menu.addSeparator()
         a = menu.addAction(f"{S('lib.ctx.remove')}\t{strings.KEYS['lib_remove'][0]}")
         a.setObjectName("ctx.remove")
         a.triggered.connect(lambda: self.remove_book(bid))
         return menu
+
+    def convert_book(self, bid: str) -> Any:
+        """转换为 LaTeX 和 PDF… (DjVu: 转换为 PDF…) for a shelf entry.  Returns the running job."""
+        e = self._store.library_get(bid) or self._entry(bid) or {}
+        path = str(e.get("path") or "")
+        if not path:
+            return None
+        import bookformats
+        import convert_dialog
+        kind = "djvu" if str(e.get("format") or "").lower() == "djvu" else ""
+        if not kind:
+            try:
+                kind = bookformats.sniff(path) or "epub"
+            except OSError:
+                kind = "epub"                # start_conversion reports a missing file
+        title = str(e.get("title") or "") or os.path.splitext(os.path.basename(path))[0]
+        return convert_dialog.start_conversion(self, path=path, title=title, source_format=kind,
+                                               store=self._store, content_key=bid)
 
     def show_context_menu(self, bid: str, global_pos: QPoint) -> None:
         menu = self.build_context_menu(bid)

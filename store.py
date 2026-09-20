@@ -516,7 +516,7 @@ def read_json(
 DEFAULT_SETTINGS: Final[dict[str, Any]] = {
     "schema": SCHEMA,
     "app": APP_DIR_NAME,
-    "version": "1.1.0",
+    "version": "1.2.0",
     "updated": "",
     "ui": {
         # UI_LANGUAGES: 'auto' | 'zh-Hans' | 'zh-Hant' | 'en' | 'ja'  (DECISIONS.md §2)
@@ -563,6 +563,15 @@ DEFAULT_SETTINGS: Final[dict[str, Any]] = {
         "idle_timeout_s": 120,
         "single_instance": True,
         "watch_folders": [],
+    },
+    "convert": {
+        # 转换为 LaTeX 和 PDF: the choices last made in the convert dialog
+        "last_dir": "",
+        "paper": "a5",
+        "font_size": 11,
+        "cover": True,
+        "contents": True,
+        "compile_pdf": True,
     },
     "shortcut_overrides": {},
 }

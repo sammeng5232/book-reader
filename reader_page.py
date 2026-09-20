@@ -1011,7 +1011,7 @@ class ChromeToolbar(QFrame):
         self.menu = QMenu(self)
         self.menu.setObjectName("tb-more-menu")
         self.actions: dict[str, QAction] = {}
-        for name in ("open", "library", "-", "bookinfo", "export", "-",
+        for name in ("open", "library", "-", "bookinfo", "export", "convert", "-",
                      "shortcuts", "settings", "about", "-", "quit"):
             if name == "-":
                 self.menu.addSeparator()
@@ -1033,6 +1033,8 @@ class ChromeToolbar(QFrame):
         self.actions["library"].triggered.connect(page.back_to_library)
         self.actions["bookinfo"].triggered.connect(page.show_book_info)
         self.actions["export"].triggered.connect(lambda: page.export_highlights())
+        self.actions["convert"].triggered.connect(lambda: page.convert_book())
+        self.menu.aboutToShow.connect(self.retranslate_ui)      # the convert label follows the format
         self.actions["shortcuts"].triggered.connect(page.toggle_cheatsheet)
         self.actions["settings"].triggered.connect(page.toggle_settings)
         self.actions["about"].triggered.connect(page.request_about)
@@ -1104,6 +1106,7 @@ class ChromeToolbar(QFrame):
             "library": ("menu.library", "library"),
             "bookinfo": ("menu.bookinfo", None),
             "export": ("menu.export", None),
+            "convert": ("menu.convert_pdf" if self._page.source_format() == "djvu" else "menu.convert", None),
             "shortcuts": ("menu.shortcuts", "cheatsheet"),
             "settings": ("menu.settings", "typography"),
             "about": ("menu.about", None),
@@ -1114,6 +1117,7 @@ class ChromeToolbar(QFrame):
             if kid and KEYS.get(kid):
                 text += "\t" + KEYS[kid][0]
             self.actions[name].setText(text)
+        self.actions["convert"].setEnabled(bool(self._page.source_format()))
         self._fit_title()
 
     def apply_theme(self, t: theme_mod.Theme) -> None:
@@ -5827,6 +5831,20 @@ class ReaderPage(QWidget):
                     lines.append(f"  > {_collapse(bm['text'])}")
             lines.append("")
         return "\n".join(lines).rstrip() + "\n"
+
+    def source_format(self) -> str:
+        """'epub', 'mobi', 'djvu'…: what the open book's file really is ('' with no book)."""
+        book = getattr(self, "_book", None)          # the toolbar asks while the page is still being built
+        return str(getattr(book, "source_format", "epub") or "epub") if book is not None else ""
+
+    def convert_book(self) -> Any:
+        """转换为 LaTeX 和 PDF… (DjVu: 转换为 PDF…) for the open book.  Returns the running job."""
+        if self._book is None:
+            return None
+        import convert_dialog
+        return convert_dialog.start_conversion(self, path=self._path, title=self._book_title(),
+                                               source_format=self.source_format(), store=self.store,
+                                               content_key=self._bid or None)
 
     def export_highlights(self, path: str | None = None) -> str | None:
         """导出为 Markdown….  With no *path* a save dialog asks.  Returns the path written."""

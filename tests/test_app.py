@@ -263,6 +263,15 @@ class AppGui(unittest.TestCase):
         finally:
             box.cleanup()
 
+    def test_c3_convert(self) -> None:
+        """转换为 LaTeX 和 PDF (AZW3) and 转换为 PDF (DjVu) through the real dialogs."""
+        box = Sandbox("convert")
+        try:
+            self._run("convert", box)
+            self.assertEqual(log_problems(box.log_text()), [])
+        finally:
+            box.cleanup()
+
     def test_d_features(self) -> None:
         box = Sandbox("features")
         try:

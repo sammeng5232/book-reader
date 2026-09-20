@@ -58,3 +58,17 @@ state directory across on first launch, so nobody loses a library, positions or 
 
 Internal code names (`epublib.py`, `epub_reader.py`, `window.epubReader`, the `er-` CSS prefix) were kept on
 purpose: they are not user-visible, and `epublib` genuinely is the EPUB parser that every format now feeds.
+
+## 5. v1.2 (2026-09-20): convert to LaTeX + PDF
+
+The user asked for books to be convertible to LaTeX and PDF. This supersedes "no format-conversion" in §3
+for *exporting* (books are still never modified or copied into the library).
+
+- EPUB / MOBI / AZW / AZW3 → a LaTeX project (`.tex` + `images/`) plus a PDF typeset by XeLaTeX
+  (`latexexport.py`). XeLaTeX is an external install (MiKTeX / TeX Live) found at run time, never bundled;
+  without it only the `.tex` is written and the dialog says so.
+- DjVu → PDF **directly**, no LaTeX (the user's choice: "convert djvu to pdf directly"), `djvupdf.py`.
+- TeX byproducts are never left beside user files: typesetting happens in a temp folder and only the PDF
+  is copied back (the machine-wide LaTeX cleanup policy).
+- Output goes to a new folder `<destination>\<title>\` (DjVu: `<destination>\<title>.pdf`); an existing
+  name gets " (2)". The last destination and layout choices are remembered under `convert.*`.

@@ -18,6 +18,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -1355,8 +1356,97 @@ def sc_formats(c: Ctx) -> None:
     c.quit_via_key()
 
 
+def _top(name: str) -> QWidget | None:
+    for w in QApplication.topLevelWidgets():
+        if w.objectName() == name and w.isVisible():
+            return w
+    return None
+
+
+def sc_convert(c: Ctx) -> None:
+    """转换为 LaTeX 和 PDF / 转换为 PDF through the real menus, dialog, progress and result windows."""
+    import latexexport
+    r, win = c.r, c.win
+    dest = tempfile.mkdtemp(prefix="convert-e2e-")
+    engine = latexexport.find_xelatex()
+
+    def run(expect_pdf: bool, timeout: float) -> dict:
+        seen: dict = {}
+
+        def fill() -> None:
+            dlg = _top("ConvertDialog")
+            if dlg is None:
+                QTimer.singleShot(100, fill)
+                return
+            seen["dialog"] = True
+            seen["compile_enabled"] = dlg.compile.isEnabled()
+            seen["preview"] = dlg.preview.text()
+            dlg.dest_edit.setText(dest)
+            c.shot(f"app_convert_dialog_{len(os.listdir(dest))}", dlg)
+            dlg.ok_button.click()
+        QTimer.singleShot(200, fill)
+        job = r.convert_book()
+        c.check("the convert dialog opened and was accepted", seen.get("dialog") is True and job is not None)
+        c.wait(lambda: _top("ConvertProgress") is not None or _top("ConvertResult") is not None, 20,
+               "progress window")
+        c.check("a progress window with Cancel is shown", _top("ConvertProgress") is not None
+                or _top("ConvertResult") is not None)
+        c.wait(lambda: _top("ConvertResult") is not None, timeout, "the result window")
+        box = _top("ConvertResult")
+        seen["text"] = box.text() + "\n" + box.informativeText()
+        seen["result"] = dict(job.result or {})
+        c.shot(f"app_convert_result_{len(os.listdir(dest))}", box)
+        buttons = [b.text() for b in box.buttons()]
+        seen["buttons"] = buttons
+        c.check("the result offers Open PDF" if expect_pdf else "the result window has buttons",
+                (S("convert.open_pdf") in buttons) == expect_pdf, str(buttons))
+        box.close()
+        c.pump(0.3)
+        return seen
+
+    kindle = os.path.join(FORMAT_SAMPLES, "gb11_kf8.azw3")
+    win.open_path(kindle)
+    c.ready(timeout=40)
+    act = r.toolbar.actions["convert"]
+    r.toolbar.retranslate_ui()
+    c.check("reader menu: 转换为 LaTeX 和 PDF… is there and enabled",
+            act.isEnabled() and act.text().startswith(S("menu.convert")), act.text())
+    got = run(expect_pdf=engine is not None, timeout=300)
+    res = got["result"]
+    c.check("the LaTeX source was written", os.path.isfile(str(res.get("tex"))), str(res.get("tex")))
+    if engine:
+        c.check("the PDF was typeset", bool(res.get("pdf")) and os.path.isfile(res["pdf"]) and res.get("pages", 0) > 50,
+                f"{res.get('pages')} pages, problems={res.get('problems')}")
+        c.check("XeLaTeX reported no problems", not res.get("problems"), str(res.get("problems"))[:500])
+        c.check("the result names the folder", str(res.get("folder")) in got["text"], got["text"])
+    left = [n for n in os.listdir(str(res.get("folder"))) if n.endswith((".aux", ".log", ".out", ".toc"))]
+    c.check("no TeX byproducts beside the output", left == [], str(left))
+
+    djvu_path = os.path.join(FORMAT_SAMPLES, "ia_jstor_20637537.djvu")
+    win.open_path(djvu_path)
+    c.ready(timeout=60)
+    r.toolbar.retranslate_ui()
+    c.check("reader menu for DjVu: 转换为 PDF…", act.text().startswith(S("menu.convert_pdf")), act.text())
+    got = run(expect_pdf=True, timeout=120)
+    res = got["result"]
+    c.check("the DjVu became a PDF", str(res.get("pdf", "")).endswith(".pdf") and os.path.isfile(res["pdf"])
+            and res.get("pages") == 2, str(res))
+
+    bid = r.book_id
+    win.show_library()
+    c.pump(0.5)
+    menu = c.lib.build_context_menu(bid)
+    item = next((a for a in menu.actions() if a.objectName() == "ctx.convert"), None)
+    c.check("library context menu offers the conversion", item is not None and item.isEnabled()
+            and item.text() == S("menu.convert_pdf"), item.text() if item else "missing")
+    menu.deleteLater()
+    c.data["outputs"] = sorted(os.listdir(dest))
+    shutil.rmtree(dest, ignore_errors=True)
+    c.quit_via_key()
+
+
 SCENARIOS = {
-    "probe": sc_probe, "formats": sc_formats,
+    "probe": sc_probe, "formats": sc_formats, "convert": sc_convert,
     "launch": sc_launch, "fixtures": sc_fixtures, "real": sc_real, "features": sc_features,
     "restart_a": sc_restart_a, "restart_b": sc_restart_b, "lang": sc_lang, "lang_check": sc_lang_check,
     "single_primary": sc_single_primary, "crash": sc_crash, "shots": sc_shots,

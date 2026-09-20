@@ -8,10 +8,13 @@
 //   djvutool serve                               request loop on stdin/stdout
 //
 // Serve protocol: one request per line, UTF-8, tab-separated:
-//   open <path> | info | text <page> | alltext | render <page> <width> <jpg|png> | quit
+//   open <path> | info | text <page> | alltext | render <page> <width> <jpg|png>
+//   | layers <page> [<max planes>] | quit
 // Each response is a 4-byte big-endian length followed by the payload: JSON for
 // info/text/alltext/open, and for render one format byte ('P' PNG, 'J' JPEG) and the
-// image, or 'E' and a UTF-8 message.  Errors on JSON requests are {"error": "..."}.
+// image, or 'E' and a UTF-8 message.  layers answers 'L' and the page's layers in a
+// binary layout (see Document.Layers), or 'E' and a message.  Errors on JSON requests
+// are {"error": "..."}.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -299,6 +302,88 @@ namespace DjvuTool
         // the caller decides, because the EPUB manifest declares each page image's type up front
         public byte[] Render(int page, int maxWidth, string want, out char format)
         {
+            PageLayers L = DecodeLayers(page);
+            PageInfo pi = L.Info;
+            int W = L.W, H = L.H;
+            ushort[] mask = L.Mask;
+            byte[] palette = L.Palette;
+            byte[] bgRgb = L.BgRgb; int bgW = L.BgW, bgH = L.BgH; bool bgBottomUp = L.BgBottomUp;
+            byte[] fgRgb = L.FgRgb; int fgW = L.FgW, fgH = L.FgH; bool fgBottomUp = L.FgBottomUp;
+            bool color = bgRgb != null || fgRgb != null || PaletteHasColor(palette);
+            // ---- compose at the output size ----
+            int r0 = Math.Max(1, (W + maxWidth - 1) / Math.Max(1, maxWidth));
+            int OW = (W + r0 - 1) / r0, OH = (H + r0 - 1) / r0;
+            byte[] outRgb = new byte[OW * OH * 3];      // top-down
+            for (int oy = 0; oy < OH; oy++)
+            {
+                // output row oy (top-down) covers page rows (bottom-up) [yb0, yb1)
+                int yt0 = oy * r0, yt1 = Math.Min(H, yt0 + r0);
+                int yb0 = H - yt1, yb1 = H - yt0;
+                for (int ox = 0; ox < OW; ox++)
+                {
+                    int x0 = ox * r0, x1 = Math.Min(W, x0 + r0);
+                    int total = (x1 - x0) * (yb1 - yb0);
+                    int covered = 0, fr = 0, fg = 0, fb = 0;
+                    if (mask != null)
+                    {
+                        for (int y = yb0; y < yb1; y++)
+                        {
+                            int row = y * W;
+                            for (int x = x0; x < x1; x++)
+                            {
+                                int v = mask[row + x];
+                                if (v == 0) continue;
+                                covered++;
+                                if (palette != null && v - 1 < palette.Length / 3)
+                                {
+                                    int pi3 = (v - 1) * 3;
+                                    fb += palette[pi3]; fg += palette[pi3 + 1]; fr += palette[pi3 + 2];
+                                }
+                            }
+                        }
+                    }
+                    int cx = (x0 + x1) / 2, cyb = (yb0 + yb1) / 2;     // block centre, bottom-up
+                    int br = 255, bgc = 255, bb = 255;
+                    if (bgRgb != null) Sample(bgRgb, bgW, bgH, W, H, cx, cyb, bgBottomUp, out br, out bgc, out bb);
+                    int or_, og, ob;
+                    if (covered == 0) { or_ = br; og = bgc; ob = bb; }
+                    else
+                    {
+                        int cr, cg, cb;
+                        if (palette != null)                  // FGbz: each glyph's own colour
+                        {
+                            cr = fr / covered; cg = fg / covered; cb = fb / covered;
+                        }
+                        else if (fgRgb != null) Sample(fgRgb, fgW, fgH, W, H, cx, cyb, fgBottomUp, out cr, out cg, out cb);
+                        else { cr = cg = cb = 0; }
+                        int un = total - covered;
+                        or_ = (br * un + cr * covered) / total;
+                        og = (bgc * un + cg * covered) / total;
+                        ob = (bb * un + cb * covered) / total;
+                    }
+                    int o = (oy * OW + ox) * 3;
+                    outRgb[o] = (byte)or_; outRgb[o + 1] = (byte)og; outRgb[o + 2] = (byte)ob;
+                }
+            }
+            if (mask == null && bgRgb == null && fgRgb == null && L.HasSmmr)
+                throw new NotSupportedException("this page uses MMR (fax) compression, which is not supported");
+            return Encode(outRgb, OW, OH, color, want == "jpg", pi.Rotation, out format);
+        }
+
+        // The decoded layers of one page, as DjVu stores them (shared by Render and Layers).
+        internal sealed class PageLayers
+        {
+            public PageInfo Info;
+            public int W, H;
+            public ushort[] Mask;          // bottom-up; per pixel 0 = no ink, else 1 + blit colour index
+            public byte[] Palette;         // FGbz: B, G, R triples, or null
+            public byte[] BgRgb, FgRgb;    // R, G, B
+            public int BgW, BgH, FgW, FgH;
+            public bool BgBottomUp = true, FgBottomUp = true, HasSmmr;
+        }
+
+        PageLayers DecodeLayers(int page)
+        {
             Component c = Pages[page];
             PageInfo pi = Info(page);
             int W = pi.Width, H = pi.Height;
@@ -388,66 +473,158 @@ namespace DjvuTool
                 DecodeJpeg(b, fgjp, out fgRgb, out fgW, out fgH);
                 fgBottomUp = false;
             }
-            bool color = bgRgb != null || fgRgb != null || PaletteHasColor(palette);
-            // ---- compose at the output size ----
-            int r0 = Math.Max(1, (W + maxWidth - 1) / Math.Max(1, maxWidth));
-            int OW = (W + r0 - 1) / r0, OH = (H + r0 - 1) / r0;
-            byte[] outRgb = new byte[OW * OH * 3];      // top-down
-            for (int oy = 0; oy < OH; oy++)
+            PageLayers L = new PageLayers();
+            L.Info = pi; L.W = W; L.H = H; L.Mask = mask; L.Palette = palette;
+            L.BgRgb = bgRgb; L.BgW = bgW; L.BgH = bgH; L.BgBottomUp = bgBottomUp;
+            L.FgRgb = fgRgb; L.FgW = fgW; L.FgH = fgH; L.FgBottomUp = fgBottomUp;
+            L.HasSmmr = smmr != null;
+            return L;
+        }
+
+        // ---- layers: the page's layers for a mixed-raster PDF --------------------------
+        // Reply (after the 'L' tag byte; integers big-endian):
+        //   u8 version (1); u32 W, u32 H (page pixels); u16 dpi; u16 rotation (0/90/180/270)
+        //   u8 flags: 1 = the page has a mask, 2 = too many distinct ink colours (no planes sent)
+        //   u16 nplanes, then per plane: u8 R, G, B; u8 source (0 = the solid colour R,G,B,
+        //       1 = the foreground image); u32 x, y, w, h: the plane's bounding box in top-down
+        //       page pixels (the whole page for source 1); u32 length; packed 1-bit rows of the
+        //       box, top-down, MSB first, (w + 7) / 8 bytes per row, bit 1 = no ink, 0 = ink
+        //       (usable as a PDF stencil mask as is)
+        //   background: u32 w, u32 h, w*h*3 bytes RGB top-down (w = 0: none)
+        //   foreground: u32 w, u32 h, RGB top-down (only when a plane uses it, else w = 0)
+        // Planes are the mask split by ink colour (FGbz palette entries with the same RGB merged,
+        // empty ones dropped).  With more than maxPlanes colours no planes and no layers are sent:
+        // the caller composes the page with render instead.
+        public byte[] Layers(int page, int maxPlanes)
+        {
+            PageLayers L = DecodeLayers(page);
+            if (L.Mask == null && L.BgRgb == null && L.FgRgb == null && L.HasSmmr)
+                throw new NotSupportedException("this page uses MMR (fax) compression, which is not supported");
+            int W = L.W, H = L.H;
+            // ink value v (1 + blit colour index) -> plane; plane colours as RGB
+            List<int> planeColor = new List<int>();          // 0xRRGGBB
+            List<byte> planeSource = new List<byte>();
+            int[] valuePlane = null;
+            bool tooMany = false;
+            if (L.Mask != null)
             {
-                // output row oy (top-down) covers page rows (bottom-up) [yb0, yb1)
-                int yt0 = oy * r0, yt1 = Math.Min(H, yt0 + r0);
-                int yb0 = H - yt1, yb1 = H - yt0;
-                for (int ox = 0; ox < OW; ox++)
+                int maxV = 0;
+                bool[] seen = new bool[65536];
+                foreach (ushort v in L.Mask) if (v != 0 && !seen[v]) { seen[v] = true; if (v > maxV) maxV = v; }
+                valuePlane = new int[maxV + 1];
+                Dictionary<int, int> byColor = new Dictionary<int, int>();
+                for (int v = 1; v <= maxV; v++)
                 {
-                    int x0 = ox * r0, x1 = Math.Min(W, x0 + r0);
-                    int total = (x1 - x0) * (yb1 - yb0);
-                    int covered = 0, fr = 0, fg = 0, fb = 0;
-                    if (mask != null)
+                    valuePlane[v] = -1;
+                    if (!seen[v]) continue;
+                    int rgb; byte src;
+                    if (L.Palette != null)
                     {
-                        for (int y = yb0; y < yb1; y++)
-                        {
-                            int row = y * W;
-                            for (int x = x0; x < x1; x++)
-                            {
-                                int v = mask[row + x];
-                                if (v == 0) continue;
-                                covered++;
-                                if (palette != null && v - 1 < palette.Length / 3)
-                                {
-                                    int pi3 = (v - 1) * 3;
-                                    fb += palette[pi3]; fg += palette[pi3 + 1]; fr += palette[pi3 + 2];
-                                }
-                            }
-                        }
+                        int k = v - 1 < L.Palette.Length / 3 ? v - 1 : -1;
+                        rgb = k < 0 ? 0 : (L.Palette[3 * k + 2] << 16) | (L.Palette[3 * k + 1] << 8) | L.Palette[3 * k];
+                        src = 0;
                     }
-                    int cx = (x0 + x1) / 2, cyb = (yb0 + yb1) / 2;     // block centre, bottom-up
-                    int br = 255, bgc = 255, bb = 255;
-                    if (bgRgb != null) Sample(bgRgb, bgW, bgH, W, H, cx, cyb, bgBottomUp, out br, out bgc, out bb);
-                    int or_, og, ob;
-                    if (covered == 0) { or_ = br; og = bgc; ob = bb; }
-                    else
+                    else if (L.FgRgb != null) { rgb = 0; src = 1; }
+                    else { rgb = 0; src = 0; }
+                    int key = src == 1 ? -1 : rgb, p;
+                    if (!byColor.TryGetValue(key, out p))
                     {
-                        int cr, cg, cb;
-                        if (palette != null)                  // FGbz: each glyph's own colour
-                        {
-                            cr = fr / covered; cg = fg / covered; cb = fb / covered;
-                        }
-                        else if (fgRgb != null) Sample(fgRgb, fgW, fgH, W, H, cx, cyb, fgBottomUp, out cr, out cg, out cb);
-                        else { cr = cg = cb = 0; }
-                        int un = total - covered;
-                        or_ = (br * un + cr * covered) / total;
-                        og = (bgc * un + cg * covered) / total;
-                        ob = (bb * un + cb * covered) / total;
+                        p = planeColor.Count;
+                        byColor[key] = p;
+                        planeColor.Add(rgb);
+                        planeSource.Add(src);
                     }
-                    int o = (oy * OW + ox) * 3;
-                    outRgb[o] = (byte)or_; outRgb[o + 1] = (byte)og; outRgb[o + 2] = (byte)ob;
+                    valuePlane[v] = p;
+                }
+                if (planeColor.Count > maxPlanes) tooMany = true;
+            }
+            MemoryStream ms = new MemoryStream();
+            ms.WriteByte((byte)'L');
+            ms.WriteByte(1);
+            U32(ms, W); U32(ms, H); U16(ms, L.Info.Dpi); U16(ms, L.Info.Rotation);
+            ms.WriteByte((byte)((L.Mask != null ? 1 : 0) | (tooMany ? 2 : 0)));
+            if (tooMany)
+            {
+                U16(ms, 0);
+                U32(ms, 0); U32(ms, 0); U32(ms, 0); U32(ms, 0);
+                return ms.ToArray();
+            }
+            int n = planeColor.Count;
+            // each plane's bounding box (top-down page pixels, exclusive ends); a plane painted
+            // with the foreground image covers the whole page, as the image does
+            int[] bx0 = new int[n], by0 = new int[n], bx1 = new int[n], by1 = new int[n];
+            for (int p = 0; p < n; p++)
+            {
+                if (planeSource[p] == 1) { bx1[p] = W; by1[p] = H; }
+                else { bx0[p] = W; by0[p] = H; }
+            }
+            for (int yt = 0; yt < H; yt++)
+            {
+                int src = (H - 1 - yt) * W;
+                for (int x = 0; x < W; x++)
+                {
+                    int v = L.Mask[src + x];
+                    if (v == 0) continue;
+                    int p = valuePlane[v];
+                    if (x < bx0[p]) bx0[p] = x;
+                    if (x >= bx1[p]) bx1[p] = x + 1;
+                    if (yt < by0[p]) by0[p] = yt;
+                    if (yt >= by1[p]) by1[p] = yt + 1;
                 }
             }
-            if (mask == null && bgRgb == null && fgRgb == null && smmr != null)
-                throw new NotSupportedException("this page uses MMR (fax) compression, which is not supported");
-            return Encode(outRgb, OW, OH, color, want == "jpg", pi.Rotation, out format);
+            byte[][] bits = new byte[n][];
+            int[] rowBytes = new int[n];
+            for (int p = 0; p < n; p++)
+            {
+                rowBytes[p] = (bx1[p] - bx0[p] + 7) / 8;
+                bits[p] = new byte[rowBytes[p] * (by1[p] - by0[p])];
+                for (int i = 0; i < bits[p].Length; i++) bits[p][i] = 0xFF;
+            }
+            for (int yt = 0; yt < H; yt++)
+            {
+                int src = (H - 1 - yt) * W;
+                for (int x = 0; x < W; x++)
+                {
+                    int v = L.Mask[src + x];
+                    if (v == 0) continue;
+                    int p = valuePlane[v], rx = x - bx0[p];
+                    bits[p][(yt - by0[p]) * rowBytes[p] + (rx >> 3)] &= (byte)~(0x80 >> (rx & 7));
+                }
+            }
+            U16(ms, n);
+            bool usesFg = false;
+            for (int p = 0; p < n; p++)
+            {
+                int rgb = planeColor[p];
+                ms.WriteByte((byte)(rgb >> 16)); ms.WriteByte((byte)(rgb >> 8)); ms.WriteByte((byte)rgb);
+                ms.WriteByte(planeSource[p]);
+                if (planeSource[p] == 1) usesFg = true;
+                U32(ms, bx0[p]); U32(ms, by0[p]); U32(ms, bx1[p] - bx0[p]); U32(ms, by1[p] - by0[p]);
+                U32(ms, bits[p].Length);
+                ms.Write(bits[p], 0, bits[p].Length);
+                bits[p] = null;
+            }
+            WriteLayer(ms, L.BgRgb, L.BgW, L.BgH, L.BgBottomUp);
+            if (usesFg) WriteLayer(ms, L.FgRgb, L.FgW, L.FgH, L.FgBottomUp);
+            else { U32(ms, 0); U32(ms, 0); }
+            return ms.ToArray();
         }
+
+        static void WriteLayer(MemoryStream ms, byte[] rgb, int w, int h, bool bottomUp)
+        {
+            if (rgb == null) { U32(ms, 0); U32(ms, 0); return; }
+            U32(ms, w); U32(ms, h);
+            int stride = w * 3;
+            for (int yt = 0; yt < h; yt++)
+                ms.Write(rgb, (bottomUp ? h - 1 - yt : yt) * stride, stride);
+        }
+
+        static void U32(Stream s, int v)
+        {
+            s.WriteByte((byte)(v >> 24)); s.WriteByte((byte)(v >> 16)); s.WriteByte((byte)(v >> 8)); s.WriteByte((byte)v);
+        }
+
+        static void U16(Stream s, int v) { s.WriteByte((byte)(v >> 8)); s.WriteByte((byte)v); }
 
         static bool PaletteHasColor(byte[] pal)
         {
@@ -869,6 +1046,10 @@ namespace DjvuTool
                                 Array.Copy(img, 0, reply, 1, img.Length);
                                 break;
                             }
+                        case "layers":
+                            reply = Need(doc).Layers(int.Parse(parts[1], CultureInfo.InvariantCulture),
+                                                     parts.Length > 2 ? int.Parse(parts[2], CultureInfo.InvariantCulture) : 32);
+                            break;
                         case "quit":
                             return 0;
                         default:
@@ -878,7 +1059,7 @@ namespace DjvuTool
                 catch (Exception e)
                 {
                     string msg = e.GetType().Name + ": " + e.Message;
-                    reply = parts[0] == "render"
+                    reply = parts[0] == "render" || parts[0] == "layers"
                         ? Prefix((byte)'E', Encoding.UTF8.GetBytes(msg))
                         : Encoding.UTF8.GetBytes("{\"error\":" + Json.Str(msg) + "}");
                 }

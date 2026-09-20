@@ -1,0 +1,25 @@
+[package]
+name = "bookreadertex"
+version = "1.2.0"
+edition = "2021"
+publish = false
+description = "The TeX engine Book Reader ships on Android: Tectonic (XeTeX + xdvipdfmx) behind a JNI wrapper."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# No network backend: the app is offline, its LaTeX packages come from a directory
+# bundle in app storage, so reqwest/openssl are not built at all.
+tectonic = { version = "0.17", default-features = false }
+tectonic_bundles = { version = "0.4", default-features = false }
+tectonic_status_base = "0.2"
+tectonic_errors = "0.2"
+jni = "0.21"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 4
+strip = "symbols"
+panic = "unwind"       # the JNI layer catches panics; abort would take the app down

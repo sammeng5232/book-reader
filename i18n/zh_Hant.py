@@ -73,6 +73,7 @@ TABLE: dict[str, str] = {
 
     # ---- overflow menu ----
     "menu.open": "開啟書籍…",
+    "menu.new_window": "新增視窗",
     "menu.library": "回到書櫃",
     "menu.bookinfo": "書籍資訊",
     "menu.export": "匯出畫線…",
@@ -523,6 +524,8 @@ TABLE: dict[str, str] = {
     "keys.group.panels": "面板",
     "keys.group.actions": "操作",
     "keys.group.window": "視窗與程式",
+    "keys.group.tabs": "標籤頁",
+    "keys.group.windows": "視窗",
     "keys.group.library": "書櫃",
     "keys.next_page": "下一頁",
     "keys.prev_page": "上一頁",
@@ -555,8 +558,17 @@ TABLE: dict[str, str] = {
     "keys.zen": "專注模式",
     "keys.open": "開啟書籍…",
     "keys.library": "回到書櫃",
-    "keys.close_book": "關閉目前的書並回到書櫃；在書櫃時則關閉視窗",
+    "keys.close_book": "關閉目前的書及其標籤頁；在書架標籤頁時關閉視窗",
     "keys.quit": "結束",
+    "keys.new_tab": "新增標籤頁（書架）",
+    "keys.next_tab": "下一個標籤頁",
+    "keys.prev_tab": "上一個標籤頁",
+    "keys.new_window": "新增視窗",
+
+    # ---- tabs ----
+    "tabs.new": "新增標籤頁（開啟書架）",
+    "tabs.close": "關閉標籤頁",
+    "tabs.close_others": "關閉其他標籤頁",
     "keys.lib_move": "移動選取項目",
     "keys.lib_open": "開啟選取的書籍",
     "keys.lib_focus_search": "移至搜尋方塊",

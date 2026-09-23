@@ -545,10 +545,18 @@ QTreeView::item:selected, QListView::item:selected {{ background: {t.selection};
 
 QTabBar::tab {{
     background: transparent; color: {t.chrome_secondary}; border: none; border-bottom: 2px solid transparent;
-    padding: 6px 12px;
+    padding: 6px 12px; min-width: 64px; max-width: 220px;
 }}
 QTabBar::tab:hover {{ color: {t.chrome_fg}; }}
 QTabBar::tab:selected {{ color: {t.chrome_fg}; border-bottom-color: {t.accent}; }}
+QWidget[erRole="tabrow"] {{
+    background: {t.chrome_bg}; border: none; border-bottom: 1px solid {t.chrome_border};
+}}
+QToolButton#er-newtab {{
+    background: transparent; color: {t.chrome_secondary}; border: none; border-radius: 6px;
+    padding: 4px 10px; font-size: 16px; font-weight: 600;
+}}
+QToolButton#er-newtab:hover {{ background: {t.chrome_hover}; color: {t.chrome_fg}; }}
 
 QDockWidget {{ color: {t.chrome_fg}; }}
 QDockWidget::title {{ background: {t.chrome_bg}; padding: 6px; }}

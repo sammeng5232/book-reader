@@ -85,6 +85,13 @@ PAPERS: dict[str, tuple[float, float, float, float, float, float]] = {
 }
 _PT_PER_MM = 72.27 / 25.4
 
+#: Raster pictures inside EPUBs are drawn for the browser's default ~16 px text
+#: context (= 12 pt at 96 dpi), so their pixel sizes are relative to that font,
+#: not to the export's.  Formulas are commonly shipped as little GIF/PNG images;
+#: scaling every picture by ``font_size / 12`` keeps them consistent with the
+#: running text whatever point size the reader chose.
+_EPUB_REF_FONT_PT = 12.0
+
 
 @dataclass
 class ExportOptions:
@@ -919,6 +926,7 @@ class _Writer:
         w, h, inner, outer, top, bottom = PAPERS.get(options.paper, PAPERS["a5"])
         self.textwidth = (w - inner - outer) * _PT_PER_MM
         self.textheight = (h - top - bottom) * _PT_PER_MM
+        self.px2pt = 0.75 * options.font_size / _EPUB_REF_FONT_PT
         # documents in reading order: linear ones, then non-linear ones at the end
         spine = [s for s in book.spine if s.zip_name and book.has(s.zip_name)
                  and ("html" in (s.media_type or "").lower()
@@ -2163,7 +2171,7 @@ class _Writer:
                 h, w = h * aw / w, aw
             elif ah and h:
                 w, h = w * ah / h, ah
-            opts = f"width={max(1.0, w * 0.75):.1f}pt"
+            opts = f"width={max(1.0, w * self.px2pt):.1f}pt"
         opts += ",max width=\\linewidth,max height=0.8\\textheight"
         cmd = f"\\includegraphics[{opts}]{{{path}}}"
         if block and self.mode == "normal" and not self.table_depth:
@@ -2220,7 +2228,7 @@ class _Writer:
         os.makedirs(os.path.join(self.folder, "images"), exist_ok=True)
         with open(os.path.join(self.folder, "images", name), "wb") as f:
             f.write(blob)
-        cmd = (f"\\includegraphics[width={max(1.0, w * 0.75):.1f}pt,max width=\\linewidth,"
+        cmd = (f"\\includegraphics[width={max(1.0, w * self.px2pt):.1f}pt,max width=\\linewidth,"
                f"max height=0.8\\textheight]{{images/{name}}}")
         if self.table_depth or not self._alone(el):
             self.start_para()

@@ -262,14 +262,14 @@ class LookupTest(_StateGuard):
 
     def test_tip_keys_cheatsheet(self) -> None:
         self.use("zh-Hans")
-        self.assertEqual(strings.tip("tb.toc", "toc"), "目录 (Ctrl+T)")
+        self.assertEqual(strings.tip("tb.toc", "toc"), "目录 (Ctrl+Shift+T)")
         self.assertEqual(strings.tip("tb.search", "search"), "搜索 (Ctrl+F)")
         self.assertEqual(strings.tip("tb.more"), "更多")
         self.assertEqual(strings.keys_label("find_next"), "F3 / n")
         for lang in strings.LANGUAGES:
             self.use(lang)
             sheet = strings.cheatsheet()
-            self.assertEqual(len(sheet), 5)
+            self.assertEqual(len(sheet), 7)
             rows = [row for _title, group in sheet for row in group]
             self.assertEqual(len(rows), sum(len(r) for _g, r in strings.CHEATSHEET_LAYOUT))
             for combos, desc in rows:
@@ -278,10 +278,11 @@ class LookupTest(_StateGuard):
         # every audited binding from product-spec §3b is on the sheet
         on_sheet = {c for _g, rows in strings.CHEATSHEET_LAYOUT for kid, _d in rows for c in strings.KEYS[kid]}
         for combo in ("Space", "PageDown", "j", "k", "Ctrl+PageDown", "Ctrl+Home", "Alt+←", "Ctrl+G", "F3", "n",
-                      "Shift+F3", "N", "Ctrl+T", "Ctrl+B", "Ctrl+E", "Ctrl+F", "/", "Ctrl+,", "Esc", "F1",
+                      "Shift+F3", "N", "Ctrl+Shift+T", "Ctrl+B", "Ctrl+E", "Ctrl+F", "/", "Ctrl+,", "Esc", "F1",
                       "Ctrl+/", "Ctrl+D", "Ctrl+C", "Ctrl+Shift+C", "Ctrl+1", "Ctrl+4", "Delete", "Ctrl+M",
                       "Ctrl+=", "Ctrl+-", "Ctrl+0", "Ctrl+Shift+D", "F11", "Ctrl+Shift+F", "Ctrl+O",
-                      "Ctrl+Shift+L", "Ctrl+W", "Ctrl+Q", "Enter", "F5"):
+                      "Ctrl+Shift+L", "Ctrl+W", "Ctrl+Q", "Ctrl+T", "Ctrl+Tab", "Ctrl+Shift+Tab", "Ctrl+N",
+                      "Enter", "F5"):
             self.assertIn(combo, on_sheet)
         self.assertNotIn("Ctrl+P", on_sheet)
 

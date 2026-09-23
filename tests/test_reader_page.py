@@ -127,7 +127,9 @@ def phase_unit(out: str) -> Results:
         for n in names:
             if not callable(getattr(rp.ReaderPage, n, None)):
                 problems.append(f"{kid}: ReaderPage.{n} missing")
-    reader_ids = [kid for g, rows in strings.CHEATSHEET_LAYOUT if g != "keys.group.library" for kid, _ in rows]
+    shell_groups = ("keys.group.library", "keys.group.tabs", "keys.group.windows")
+    reader_ids = [kid for g, rows in strings.CHEATSHEET_LAYOUT if g not in shell_groups
+                  for kid, _ in rows]
     missing = [kid for kid in reader_ids if kid not in rp.ACTION_SLOTS]
     r.check("ACTION_SLOTS covers every reader shortcut id with a real slot",
             not problems and not missing, "; ".join(problems + missing))

@@ -26,18 +26,37 @@ object TexEngine {
      */
     external fun typeset(texPath: String, pdfPath: String, bundlePath: String, cachePath: String): String
 
-    /** Where the engine keeps its compiled format file. */
-    fun cacheDir(context: Context): File =
-        File(context.cacheDir, "texformat").apply { mkdirs() }
+    /** Where the engine keeps its compiled format file.  The format is tied to
+     *  the bundle it was built from, so it is cleared whenever the bundle's
+     *  fingerprint changes. */
+    fun cacheDir(context: Context): File {
+        val dir = File(context.cacheDir, "texformat").apply { mkdirs() }
+        val stamp = File(dir, ".bundle-fingerprint")
+        val fingerprint = bundleFingerprint(context)
+        if (!stamp.isFile || stamp.readText() != fingerprint) {
+            dir.listFiles()?.forEach { if (it.name != stamp.name) it.delete() }
+            stamp.writeText(fingerprint)
+        }
+        return dir
+    }
 
-    /** Unpacks `assets/texbundle` into app storage on first use and returns the folder. */
+    /** The shipped bundle's fingerprint (the SHA256SUM the bundle build writes). */
+    private fun bundleFingerprint(context: Context): String = runCatching {
+        context.assets.open("texbundle/SHA256SUM").bufferedReader().readText().trim()
+    }.getOrDefault("")
+
+    /** Unpacks `assets/texbundle` into app storage, re-doing it whenever the
+     *  shipped bundle changes (the stamp records the bundle's fingerprint, so an
+     *  app update that carries new files actually replaces the extracted copy). */
     fun bundleDir(context: Context): File {
         val target = File(context.filesDir, "texbundle")
         val stamp = File(target, ".unpacked")
-        if (stamp.isFile) return target
+        val fingerprint = bundleFingerprint(context)
+        if (stamp.isFile && stamp.readText() == fingerprint) return target
+        target.deleteRecursively()
         target.mkdirs()
         unpack(context, "texbundle", target)
-        stamp.writeText("1")
+        stamp.writeText(fingerprint)
         return target
     }
 

@@ -204,7 +204,9 @@ PREFERRED_LATIN_FONTS: tuple[str, ...] = (
 
 #: ``strings.KEYS`` id -> ReaderPage slot name(s).  With one name every combo of
 #: that id binds to it; with several, combo *i* binds to name *i*.  Library-screen
-#: ids are not listed (owner F).  The in-page keys (Space, arrows, PageUp/Down,
+#: ids are not listed (owner F).  The tab-management ids (new_tab, next_tab,
+#: prev_tab) are shell-owned too (MainWindow routes them while any tab is
+#: active, including the shelf).  The in-page keys (Space, arrows, PageUp/Down,
 #: Home/End, Enter) are already handled by reader.js while the book has focus;
 #: bind them application-wide only under the spec's gating rule.
 ACTION_SLOTS: dict[str, tuple[str, ...]] = {

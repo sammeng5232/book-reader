@@ -41,7 +41,9 @@ from epublib import EpubBook, EpubError
 __all__ = ["DjvuBook", "open_book", "tool_path", "DJVU_CONVERTER_VERSION", "DjvuTool"]
 
 #: Part of the conversion cache key: bump whenever the produced EPUB changes.
-DJVU_CONVERTER_VERSION = 1
+#: Bumped to 2 when titles began keeping the file name's underscores: the cached
+#: EPUB bakes the title into its metadata, so old caches must be rebuilt.
+DJVU_CONVERTER_VERSION = 2
 #: Width in pixels of rendered page images (Chromium scales them to the window).
 RENDER_WIDTH = 1800
 PAGE_CACHE = 12
@@ -288,8 +290,13 @@ def open_book(path: str, *, cache_root: str | None = None, content_key: str | No
 
 
 def _title_from_filename(path: str) -> str:
+    """The shelf/PDF title for a DjVu file: its name, whitespace collapsed.
+
+    Underscores are kept: the user names files ``Title_Author`` and the files
+    the converter writes must match that (they feed ``safe_stem`` unchanged).
+    """
     stem = os.path.splitext(os.path.basename(path))[0]
-    return " ".join(stem.replace("_", " ").split()) or stem
+    return " ".join(stem.split()) or stem
 
 
 def build_epub(source: str, info: dict, texts: list) -> bytes:

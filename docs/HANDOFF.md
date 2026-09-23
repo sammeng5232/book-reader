@@ -121,12 +121,59 @@ if that folder is gone.
   Kotlin `Int` is signed — use `ushr` and `and 0xFF`/`and 0xFFFF` masks. The ZP coder,
   BZZ and IW44 paths break subtly (pages decode as noise) if this is wrong.
 
-### 4.2 Long conversions must survive Samsung's battery manager
+### 4.2 Long conversions must survive Samsung's battery manager (done 2026-09-23)
 
-The phone freezes/kills background apps (`FreecessHandler` in logcat). Move conversion
-into a **foreground service with a notification**, and keep the screen awake while a
-conversion runs. Right now a long conversion only survives because the harness screen
-is in front.
+Conversions now run under `ConvertService` — a minimal foreground service
+(`dataSync` type) that starts right before the worker thread and stops when the
+result is shown. It runs nothing itself; it holds the process at foreground-
+service priority with an ongoing notification so Freecess-style app freezing
+cannot kill a long typeset. `POST_NOTIFICATIONS` is requested once on Android
+13+ (the service works even with the notification silenced).
+
+### 4.2a TeX bundle: math fonts, stale copies (fixed 2026-09-23)
+
+Two Android-only conversion bugs, both paid for with the Björk book
+(`Arbitrage Thy in Ctus Time_Björk.epub`, 5,475 formula images):
+
+* **No PDF after the .tex** — the engine died with
+  `Font OML/cmm/m/it/14.4=cmmi12 … not loadable: Metric (TFM) file not found`.
+  The bundle is filled by compiling `native/probes/*.tex`; their preambles load
+  `amsmath,amssymb` but their *bodies* had no math, so the Computer Modern 12pt
+  metrics (`cmmi12.tfm`, `cmr12.tfm`) were never pulled in. A math-heavy book
+  needs them (superscripted letters at `\Large` reach full-size math fonts).
+  Fix: `native/probes/math.tex` exercises real math; the bundle was rebuilt
+  (392 files, fingerprint `e8fa6d0c…`).
+* **App updates kept the OLD bundle** — `TexEngine.bundleDir` stamped `.unpacked`
+  once and never refreshed, so an install-over kept the stale extracted copy (and
+  the format built from it). The stamp now records the bundle's `SHA256SUM`
+  fingerprint, and the format cache is cleared when it changes.
+
+Also fixed in the same pass: `publishResults` flattened the converter's folder
+layout (the .tex landed without its `images/` subfolder, uncompilable elsewhere);
+typesetter errors were swallowed behind a success message reading "pages: 0";
+and re-converting a book duplicated its files.  Replacement is done by sweeping
+every row the book previously published (one `RELATIVE_PATH LIKE` pass) before
+anything is inserted — interleaving per-file delete/insert races MediaProvider's
+asynchronous file removal, and a 5,000-image book then lands in a parallel
+`"title (2)"` folder.  Verified on the emulator (AVD BookReader35): the Björk
+book converts to a 19.3 MB PDF with the folder layout intact, and re-converting
+replaces the files in place.
+
+Known limitation, not fixed: PDFs produced by the bundled engine have a poor text
+layer (copy/search extract mojibake). Vanilla tectonic 0.17 on the host shows the
+same, so it is upstream xdvipdfmx behaviour, not the custom build. Pages render
+and print fine.
+
+### 4.2b Formula images scale with the font size (fixed 2026-09-23)
+
+Publishers ship formulas as little GIF/PNG images drawn for the browser's default
+~16 px text context (= 12 pt at 96 dpi); `latexexport` used a flat `px × 0.75`
+mapping regardless of the export's point size, so formulas sat ~20 % oversized
+next to 10–11 pt text. Pictures are now scaled by `px × 0.75 × font_size / 12`
+(`_EPUB_REF_FONT_PT` in `latexexport.py`), which restores the publisher's
+intended formula-to-text proportion at every font size. Regenerating real LaTeX
+from these images is not possible (no MathML, `alt="image"` only); when an EPUB
+*does* carry MathML with a TeX annotation, `el_math` already emits `\(...\)`.
 
 ### 4.3 File picking (SAF) — done (2026-09-21)
 

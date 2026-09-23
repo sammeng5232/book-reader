@@ -71,6 +71,7 @@ TABLE: dict[str, str] = {
 
     # ---- overflow menu ----
     "menu.open": "Open Book…",
+    "menu.new_window": "New Window",
     "menu.library": "Back to Library",
     "menu.bookinfo": "Book Details",
     "menu.export": "Export Highlights…",
@@ -521,6 +522,8 @@ TABLE: dict[str, str] = {
     "keys.group.panels": "Panels",
     "keys.group.actions": "Actions",
     "keys.group.window": "Window and App",
+    "keys.group.tabs": "Tabs",
+    "keys.group.windows": "Windows",
     "keys.group.library": "Library",
     "keys.next_page": "Next page",
     "keys.prev_page": "Previous page",
@@ -553,8 +556,17 @@ TABLE: dict[str, str] = {
     "keys.zen": "Focus mode",
     "keys.open": "Open a book…",
     "keys.library": "Back to the library",
-    "keys.close_book": "Close the book and return to the library; in the library, close the window",
+    "keys.close_book": "Close the book and its tab; on the library tab, close the window",
     "keys.quit": "Exit",
+    "keys.new_tab": "New tab (the library)",
+    "keys.next_tab": "Next tab",
+    "keys.prev_tab": "Previous tab",
+    "keys.new_window": "New window",
+
+    # ---- tabs ----
+    "tabs.new": "New tab (opens the library)",
+    "tabs.close": "Close tab",
+    "tabs.close_others": "Close other tabs",
     "keys.lib_move": "Move the selection",
     "keys.lib_open": "Open the selected book",
     "keys.lib_focus_search": "Go to the search box",

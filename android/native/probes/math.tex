@@ -1,0 +1,71 @@
+\documentclass[11pt,openany,oneside]{book}
+% Converted by Book Reader.  Typeset with XeLaTeX:  xelatex <this file>  (twice, for the contents)
+\usepackage[paperwidth=148mm,paperheight=210mm,inner=17mm,outer=15mm,top=18mm,bottom=20mm,headsep=5mm,footskip=9mm]{geometry}
+\usepackage{fontspec}
+\setmainfont{texgyretermes-regular.otf}
+\usepackage[normalem]{ulem}
+\newcommand\CJKunderline{\uline}\newcommand\CJKsout{\sout}
+\usepackage{graphicx}
+\usepackage[export]{adjustbox}
+\usepackage{longtable,booktabs,array}
+\usepackage{enumitem}
+\usepackage{amsmath,amssymb}
+\usepackage{fancyhdr}
+\usepackage{eso-pic}
+\usepackage{titlesec}
+\titleformat{\chapter}[block]{\normalfont\LARGE\bfseries\centering}{}{0pt}{}
+\titlespacing*{\chapter}{0pt}{0.08\textheight}{2em}
+\titleformat{\section}{\normalfont\Large\bfseries}{}{0pt}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{}{0pt}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{}{0pt}{}
+\renewcommand\contentsname{Contents}
+\setcounter{tocdepth}{3}
+\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}
+\fancyhead[C]{\small\itshape\nouppercase{\leftmark}}\fancyfoot[C]{\small\thepage}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\thepage}\renewcommand{\headrulewidth}{0pt}}
+\setlength{\emergencystretch}{3em}\raggedbottom
+\XeTeXgenerateactualtext=1
+\setlist{itemsep=0.2ex,topsep=0.6ex}
+\newcommand\erhead[2]{\par\addvspace{1.2ex plus 0.4ex}{\noindent\normalfont\bfseries\ifcase#1\or\LARGE\or\Large\or\large\else\normalsize\fi #2\par}\nobreak\addvspace{0.8ex}}
+\newcommand\erruby[2]{\leavevmode\begin{tabular}[b]{@{}c@{}}{\tiny #2}\\[-0.4ex]#1\end{tabular}}
+\usepackage[hidelinks,bookmarksopen=true,bookmarksopenlevel=0]{hyperref}
+\hypersetup{pdftitle={A Course in Mathematical Typesetting},pdfauthor={Book Reader},pdfcreator={Book Reader},pdflang={en}}
+
+\begin{document}
+\begin{titlepage}
+\AddToShipoutPictureBG*{\AtPageCenter{\makebox[0pt]{\raisebox{-0.5\height}{\rule{2pt}{2pt}}}}}
+\mbox{}
+\end{titlepage}
+\tableofcontents\clearpage
+%% ---- OEBPS/ch1.xhtml ----
+
+\clearpage\phantomsection
+\addcontentsline{toc}{chapter}{Chapter One}
+\chapter*{Chapter One}
+\markboth{Chapter One}{Chapter One}
+% Superscripted letters are what MathML fallback and heading marks emit; at
+% \Large the kernel's math-mode superscript needs the 12pt Computer Modern
+% metrics (cmmi12/cmr12), which no other probe pulled into the bundle.
+Exponents on names Q\textsuperscript{{\em\itshape M\/}} and Q\textsuperscript{{\em\itshape E\/}} in running text, plus H\textsubscript{2}O and x\textsuperscript{2}.
+
+\erhead{2}{1.1 Basic Properties of {\em\itshape Q\/}\textsuperscript{{\em\itshape M\/}}}
+\erhead{3}{1.1.1 A smaller heading with a\textsuperscript{b} mark}
+
+% MathML with a TeX annotation is emitted as real math:
+The discount factor is \(D(t) = e^{-rt}\), and the price is
+\[
+V_0 = E^{\mathbb{Q}} \left[ e^{-\int_0^T r_s\,ds}\, \frac{S_T}{N} \right]
+\]
+where \(S_T = \sum_{i=1}^{n} w_i X_i^2\), \(\alpha + \beta \geq \gamma \cdot \delta\),
+\(\lambda \in \mathbb{R}^n\), \(\mu \in \mathcal{F}_t\), and
+\(\mathcal{N}(0, \sigma^2)\) with \(\sigma = \sqrt{\pi / 6}\).
+
+\[
+\begin{aligned}
+\frac{\partial f}{\partial t} + \mu x \frac{\partial f}{\partial x}
+  + \frac{1}{2} \sigma^2 x^2 \frac{\partial^2 f}{\partial x^2} - rf &= 0, \\
+\prod_{k=1}^{m} (1 + y_k) &\leq \exp\left(\sum_{k=1}^{m} y_k\right).
+\end{aligned}
+\]
+
+\end{document}

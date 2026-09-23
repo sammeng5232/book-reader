@@ -39,8 +39,13 @@ _app = None
 
 def setUpModule() -> None:
     global _app
-    from PySide6.QtGui import QGuiApplication
-    _app = QGuiApplication.instance() or QGuiApplication([])
+    # QApplication, NOT QGuiApplication: a later module's QApplication.instance()
+    # cannot down-cast a bare QGuiApplication, so it would create a second
+    # application object, and the process fastfails (0xC0000409) at teardown
+    # when several QCoreApplication singletons die (seen with test_latexexport
+    # right after this module in discovery order).
+    from PySide6.QtWidgets import QApplication
+    _app = QApplication.instance() or QApplication([])
 
 
 def _open_pdf(path: str):
@@ -405,7 +410,7 @@ class SyntheticPdfTests(unittest.TestCase):
         with open(self.pdf, "rb") as fh:
             data = fh.read()
         self.assertIn(b"/PageMode /UseOutlines", data)
-        self.assertIn(b"/Title <FEFF" + "My Book Title".encode("utf-16-be").hex().upper().encode(), data)
+        self.assertIn(b"/Title <FEFF" + "My_Book Title".encode("utf-16-be").hex().upper().encode(), data)
         doc.close()
 
 

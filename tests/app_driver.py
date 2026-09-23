@@ -1445,11 +1445,74 @@ def sc_convert(c: Ctx) -> None:
     c.quit_via_key()
 
 
+def sc_windows(c: Ctx) -> None:
+    """j. Ctrl+N makes a second window: its own tabs, both saved in the session."""
+    import epub_reader as er
+    win = c.win
+    c.activate()
+    live = er.WINDOWS.live()
+    c.check("one window at start", len(live) == 1, str(len(live)))
+    c.key(K.Key_N, CTRL)                       # Ctrl+N: a new window
+    c.wait(lambda: len(er.WINDOWS.live()) == 2, 5, "second window")
+    w2 = max(er.WINDOWS.live(), key=lambda w: w._slot)
+    c.check("second window exists and is shown", w2 is not win and w2.isVisible())
+    c.check("second window starts on the shelf", w2.stack.currentWidget() is w2.library)
+    c.check("second window key audit is clean", not w2.keys.problems, "; ".join(w2.keys.problems))
+    # a book opened in the second window stays out of the first
+    w2.open_path(os.path.join(FIXTURES, "epub3_nav.epub"))
+    r2 = w2.reader
+    c.wait(lambda: r2.is_ready() and bool(r2.page_state), 15, "book in second window")
+    c.check("book renders in the second window", r2.book is not None)
+    c.check("second window title names the book", w2.windowTitle().endswith("— Book Reader"),
+            w2.windowTitle())
+    c.check("first window still on the shelf, no book tabs",
+            win.stack.currentWidget() is win.library and all(t.is_library for t in win.tabs))
+    session = c.store.get("window.session") or {}
+    c.check("session keeps both windows", isinstance(session.get("windows"), list)
+            and len(session["windows"]) == 2, str(session)[:400])
+    # closing a window drops only its tabs
+    w2.close()
+    c.wait(lambda: len(er.WINDOWS.live()) == 1, 5, "second window closed")
+    session = c.store.get("window.session") or {}
+    c.check("session shrinks back to one window", not isinstance(session.get("windows"), list)
+            or len(session["windows"]) == 1, str(session)[:400])
+    c.check("first window is still there", win.isVisible())
+    # leave two windows open so sc_windows_b can check the restart restores both
+    c.key(K.Key_N, CTRL)
+    c.wait(lambda: len(er.WINDOWS.live()) == 2, 5, "second window again")
+    w3 = max(er.WINDOWS.live(), key=lambda w: w._slot)
+    w3.open_path(os.path.join(FIXTURES, "epub2_ncx.epub"))
+    r3 = w3.reader
+    c.wait(lambda: r3.is_ready() and bool(r3.page_state), 15, "book in the third window")
+    c.check("second book renders in the new window", r3.book is not None)
+    c.quit_via_key()
+
+
+def sc_windows_b(c: Ctx) -> None:
+    """j2. after a restart, every window and its tabs come back."""
+    import epub_reader as er
+    win = c.win
+    c.activate()
+    live = er.WINDOWS.live()
+    c.check("two windows restored", len(live) == 2, str(len(live)))
+    if len(live) >= 2:
+        w2 = max(live, key=lambda w: w._slot)
+        c.check("restored window has its book tab",
+                any(not t.is_library and t.path and t.path.endswith("epub2_ncx.epub") for t in w2.tabs),
+                str([t.path for t in w2.tabs])[:300])
+        r2 = w2.reader
+        c.wait(lambda: r2 is not None and r2.book is not None, 15, "restored book opens")
+        c.check("restored book renders", r2.book is not None)
+        c.check("first window is back on the shelf", win.stack.currentWidget() is win.library)
+    c.quit_via_key()
+
+
 SCENARIOS = {
     "probe": sc_probe, "formats": sc_formats, "convert": sc_convert,
     "launch": sc_launch, "fixtures": sc_fixtures, "real": sc_real, "features": sc_features,
     "restart_a": sc_restart_a, "restart_b": sc_restart_b, "lang": sc_lang, "lang_check": sc_lang_check,
     "single_primary": sc_single_primary, "crash": sc_crash, "shots": sc_shots,
+    "windows": sc_windows, "windows_b": sc_windows_b,
 }
 
 

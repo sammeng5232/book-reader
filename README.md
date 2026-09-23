@@ -100,7 +100,7 @@ Press **F1** in the app for the full list. The most useful ones:
 | Shift+Space / PageUp / ← / ↑, or k | Previous page |
 | Ctrl+→ / Ctrl+← | Next / previous chapter |
 | Ctrl+G | Go to… |
-| Ctrl+T · Ctrl+B · Ctrl+E | Contents · bookmarks · highlights |
+| Ctrl+Shift+T · Ctrl+B · Ctrl+E | Contents · bookmarks · highlights |
 | Ctrl+F or / · F3 / n · Shift+F3 / N | Search this book · next / previous result |
 | Ctrl+, | Text and layout settings (including interface language) |
 | Ctrl+D | Add or remove a bookmark |
@@ -111,7 +111,13 @@ Press **F1** in the app for the full list. The most useful ones:
 | Ctrl+Shift+D | Light ⇄ dark |
 | F11 · Ctrl+Shift+F | Full screen · focus mode |
 | Esc | Close a panel, leave focus mode / full screen, clear the selection (never closes the book) |
-| Ctrl+O · Ctrl+Shift+L · Ctrl+W · Ctrl+Q | Open · library · close book · exit |
+| Ctrl+O · Ctrl+Shift+L · Ctrl+W · Ctrl+Q | Open · library · close book/tab · exit |
+| Ctrl+T · Ctrl+Tab / Ctrl+Shift+Tab · Ctrl+N | New tab · next/previous tab · new window |
+
+Tabs and windows work like a browser: every window has its own tab strip, a
+book opened from the shelf navigates the current tab, a second launch or a
+drop adds a tab, and the whole session — every window, every tab — comes back
+on the next start.
 
 ## Tests
 
@@ -137,7 +143,7 @@ in `tests\fixtures\` and, if present, three real books from `Desktop\文件` (re
 | `store.py` | Persistence (JSON, atomic, versioned) |
 | `theme.py` | Themes for both the Qt chrome and the page |
 | `strings.py`, `i18n/` | UI text in four languages (`python strings.py --check` verifies parity) |
-| `epub_reader.py` | Entry point: single instance, window, keyboard map |
+| `epub_reader.py` | Entry point: single instance, windows and browser-style tabs, keyboard map |
 | `bookformats.py` | Opens any supported file (by content, not extension) as an EPUB; conversion cache |
 | `mobi.py` | Kindle MOBI / AZW / AZW3 to EPUB: PalmDB, PalmDOC, HUFF/CDIC, MOBI 6, KF8, heading-based contents |
 | `djvu.py` | DjVu as a fixed-layout EPUB with an OCR text layer; drives the decoder, renders pages on demand |

@@ -142,7 +142,7 @@ KEYS: Final[dict[str, tuple[str, ...]]] = {
     "find_next":        ("F3", "n"),
     "find_prev":        ("Shift+F3", "N"),
     # panels
-    "toc":              ("Ctrl+T",),
+    "toc":              ("Ctrl+Shift+T",),
     "bookmarks":        ("Ctrl+B",),
     "notes":            ("Ctrl+E",),
     "search":           ("Ctrl+F", "/"),
@@ -166,6 +166,11 @@ KEYS: Final[dict[str, tuple[str, ...]]] = {
     "library":          ("Ctrl+Shift+L",),
     "close_book":       ("Ctrl+W",),
     "quit":             ("Ctrl+Q",),
+    # tabs (browser-style)
+    "new_tab":          ("Ctrl+T",),
+    "next_tab":         ("Ctrl+Tab",),
+    "new_window":       ("Ctrl+N",),
+    "prev_tab":         ("Ctrl+Shift+Tab",),
     # library screen
     "lib_move":         ("↑", "↓", "←", "→"),
     "lib_open":         ("Enter",),
@@ -221,6 +226,14 @@ CHEATSHEET_LAYOUT: Final[tuple[tuple[str, tuple[tuple[str, str], ...]], ...]] = 
         ("library",          "keys.library"),
         ("close_book",       "keys.close_book"),
         ("quit",             "keys.quit"),
+    )),
+    ("keys.group.tabs", (
+        ("new_tab",          "keys.new_tab"),
+        ("next_tab",         "keys.next_tab"),
+        ("prev_tab",         "keys.prev_tab"),
+    )),
+    ("keys.group.windows", (
+        ("new_window",       "keys.new_window"),
     )),
     ("keys.group.library", (
         ("lib_move",         "keys.lib_move"),

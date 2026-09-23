@@ -16,11 +16,12 @@ What this module does, in start-up order:
 4. registers the ``epub://`` scheme (``webhost``, before ``QApplication``),
    sets the HiDPI rounding policy and creates the application;
 5. hands the book to an already running instance over ``QLocalServer``
-   (``store.PIPE_NAME``, message ``OPEN <path>``) and exits, or becomes the
-   running instance itself;
-6. builds :class:`MainWindow` — a ``QStackedWidget`` over ``LibraryPage`` and
-   ``ReaderPage`` — restores the window geometry and opens the book, the last
-   book, or the shelf;
+    (``store.PIPE_NAME``, message ``OPEN <path>``) and exits, or becomes the
+    running instance itself;
+6. builds :class:`MainWindow` — browser-style tabs over ``LibraryPage`` and
+    any number of ``ReaderPage`` s — restores the window geometry and reopens
+    the last session (every tab that was open), the one book given on the
+    command line, or the shelf;
 7. binds the whole keyboard map of product spec §3b in ONE place
    (:class:`KeyRouter`) and, in debug mode, refuses to start if any key
    sequence is bound twice;
@@ -53,6 +54,7 @@ from PySide6.QtCore import (
     QLibraryInfo,
     QLocale,
     QObject,
+    QPoint,
     QRect,
     QSize,
     Qt,
@@ -72,6 +74,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QIcon,
     QKeyEvent,
+    QMouseEvent,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
@@ -85,9 +88,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QStackedWidget,
+    QTabBar,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -274,7 +279,7 @@ _NAMED_KEYS: dict[str, int] = {
     "PageDown": _iv(_K.Key_PageDown), "PageUp": _iv(_K.Key_PageUp),
     "Home": _iv(_K.Key_Home), "End": _iv(_K.Key_End), "Delete": _iv(_K.Key_Delete),
     "/": _iv(_K.Key_Slash), ",": _iv(_K.Key_Comma), "=": _iv(_K.Key_Equal),
-    "-": _iv(_K.Key_Minus), "Plus": _iv(_K.Key_Plus),
+    "-": _iv(_K.Key_Minus), "Plus": _iv(_K.Key_Plus), "Tab": _iv(_K.Key_Tab),
 }
 for _n in range(1, 13):
     _NAMED_KEYS[f"F{_n}"] = _iv(_K.Key_F1) + _n - 1
@@ -340,7 +345,8 @@ def _page_desc(key: int, mods: int) -> str:
 
 #: KEYS ids that bind in both the reader and the library (the app shell's own keys).
 GLOBAL_ACTIONS: frozenset[str] = frozenset({
-    "open", "library", "close_book", "quit", "fullscreen", "cheatsheet", "toggle_daynight"})
+    "open", "library", "close_book", "quit", "fullscreen", "cheatsheet", "toggle_daynight",
+    "new_tab", "next_tab", "prev_tab", "new_window"})
 #: KEYS ids that only label toolbar tooltips (their keys are ``jump_history``'s).
 TOOLTIP_ONLY: frozenset[str] = frozenset({"back", "forward"})
 #: Library-screen ids that are NOT the library's: Ctrl+O is the shell's ``open``.
@@ -462,7 +468,9 @@ def audit_bindings(bindings: Sequence[Binding]) -> list[str]:
                 problems.append(f"page key {b.page_desc!r} maps to {other.kid} and {b.kid}")
             descs.setdefault(b.page_desc, b)
     for b in bindings:
-        if b.owner == "shell" and b.handler is None:
+        if b.owner == "shell" and b.handler is None and b.scope == "global":
+            # reader-scoped ids legitimately have no handler until a book tab
+            # exists (the app starts on the shelf); the shell's own keys must not.
             problems.append(f"{b.kid} ({b.label}) has no handler")
     covered = {b.kid for b in bindings} | set(TOOLTIP_ONLY) | set(SHELL_OWNED_LIBRARY_IDS)
     for kid in KEYS:
@@ -499,11 +507,18 @@ class KeyRouter(QObject):
     def __init__(self, window: "MainWindow", bindings: Sequence[Binding], *, debug: bool = False) -> None:
         super().__init__(window)
         self._win = window
+        self.debug = debug
+        self.set_bindings(bindings)
+        #: The last binding fired (tests and the log).
+        self.last_fired: str = ""
+
+    def set_bindings(self, bindings: Sequence[Binding]) -> None:
+        """Install a (possibly rebuilt) map — the active tab's reader changed."""
         self.bindings: list[Binding] = list(bindings)
         self.problems = audit_bindings(self.bindings)
         if self.problems:
             msg = "keyboard map conflicts:\n  " + "\n  ".join(self.problems)
-            if debug:
+            if self.debug:
                 raise AssertionError(msg)
             log.error("%s", msg)
         self._qt: dict[tuple[str, int, int], Binding] = {}
@@ -517,8 +532,6 @@ class KeyRouter(QObject):
                 self._page.setdefault(b.page_desc, b)
         if "/" in self._page:
             self._page.setdefault("Shift+/", self._page["/"])   # layouts where / needs Shift
-        #: The last binding fired (tests and the log).
-        self.last_fired: str = ""
 
     # -- queries --------------------------------------------------------------
     def binding_for(self, scope: str, label: str) -> Binding | None:
@@ -526,7 +539,10 @@ class KeyRouter(QObject):
         return self._qt.get((scope, key, mods)) or self._qt.get(("global", key, mods))
 
     def _in_view(self, w: QWidget | None) -> bool:
-        view = self._win.reader.view
+        reader = self._win.reader
+        if reader is None:
+            return False
+        view = reader.view
         return w is not None and (w is view or view.isAncestorOf(w) or w is view.focusProxy())
 
     def _interactive(self, w: QWidget | None) -> bool:
@@ -534,7 +550,11 @@ class KeyRouter(QObject):
         if w is None or self._in_view(w):
             return False
         win = self._win
-        return w not in (win, win.stack, win.reader, win.reader.column, win.library)
+        exempt = [win, win.stack, win.library]
+        reader = win.reader
+        if reader is not None:
+            exempt += [reader, reader.column]
+        return w not in exempt
 
     @staticmethod
     def _text_like(w: QWidget | None) -> bool:
@@ -581,7 +601,7 @@ class KeyRouter(QObject):
 
     def _allowed(self, b: Binding, fw: QWidget | None, ev: QKeyEvent) -> bool:
         reader = self._win.reader
-        if b.scope == "reader" and b.needs_book and reader.book is None:
+        if b.scope == "reader" and (reader is None or (b.needs_book and reader.book is None)):
             return False
         in_view = self._in_view(fw)
         page_live = in_view and reader.is_ready()
@@ -611,7 +631,8 @@ class KeyRouter(QObject):
         b = self._page.get(desc)
         if b is None:
             return False
-        if b.needs_book and self._win.reader.book is None:
+        reader = self._win.reader
+        if b.needs_book and (reader is None or reader.book is None):
             return False
         self._fire(b)
         return True
@@ -939,11 +960,117 @@ class AboutDialog(QDialog):
 
 
 # ==========================================================================
+# the window set (multiple OS windows, each with its own tabs)
+# ==========================================================================
+
+class _WindowSet:
+    """Every live main window, in slot order.
+
+    A window's *slot* is stable while it lives and keys its per-window
+    settings; slot 0 keeps the historical ``window.*`` keys, so a single-window
+    setup reads and writes exactly what it always did.
+    """
+
+    def __init__(self) -> None:
+        self.all: list["MainWindow"] = []
+
+    def add(self, win: "MainWindow") -> int:
+        used = {w._slot for w in self.all}
+        slot = next(i for i in range(len(self.all) + 1) if i not in used)
+        self.all.append(win)
+        return slot
+
+    def remove(self, win: "MainWindow") -> None:
+        try:
+            self.all.remove(win)
+        except ValueError:
+            pass
+
+    def live(self) -> list["MainWindow"]:
+        return [w for w in self.all if not w._shut]
+
+    def focused(self, default: "MainWindow | None" = None) -> "MainWindow | None":
+        app = QApplication.instance()
+        w = app.activeWindow() if app is not None else None
+        if isinstance(w, MainWindow):
+            return w
+        if default is not None and not default._shut:
+            return default
+        live = self.live()
+        return live[-1] if live else None
+
+
+WINDOWS = _WindowSet()
+
+
+# ==========================================================================
+# the tab strip
+# ==========================================================================
+
+@dataclass
+class _Tab:
+    """One tab: the shelf, or one open book (its reader is built lazily).
+
+    A book tab with ``reader is None`` is a *placeholder* restored from the
+    last session: the shelf entry supplies path and title, and the reading
+    surface itself is only created the first time the tab is activated (so
+    restarting with ten books open does not spawn ten Chromium renderers).
+    """
+
+    kind: str                                  # "library" | "book"
+    bid: str = ""                              # book id (content hash)
+    path: str = ""                             # the book file
+    reader: "ReaderPage | None" = None
+    title: str = ""                            # tab label until/refined by titleChanged
+
+    @property
+    def is_library(self) -> bool:
+        return self.kind == "library"
+
+
+class TabBar(QTabBar):
+    """Browser-style tabs: closable, movable, middle-click closes, context menu."""
+
+    closeOthersRequested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("er-tabbar")
+        self.setMovable(True)
+        self.setTabsClosable(True)
+        self.setExpanding(False)
+        self.setUsesScrollButtons(True)
+        self.setElideMode(Qt.TextElideMode.ElideRight)
+        self.setSelectionBehaviorOnRemove(QTabBar.SelectionBehavior.SelectLeftTab)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.MiddleButton:
+            i = self.tabAt(event.position().toPoint())
+            if i >= 0:
+                self.tabCloseRequested.emit(i)
+                return
+        super().mousePressEvent(event)
+
+    def _menu(self, pos: QPoint) -> None:
+        i = self.tabAt(pos)
+        if i < 0:
+            return
+        menu = QMenu(self)
+        menu.setObjectName("tabbar-menu")
+        menu.addAction(S("tabs.close"), lambda: self.tabCloseRequested.emit(i))
+        menu.addSeparator()
+        menu.addAction(S("tabs.close_others"), lambda: self.closeOthersRequested.emit(i))
+        menu.exec(self.mapToGlobal(pos))
+
+
+# ==========================================================================
 # the main window
 # ==========================================================================
 
 class MainWindow(QMainWindow):
-    """The one window: ``QStackedWidget`` over the shelf and the reader.
+    """The one window: browser-style tabs over the shelf and the readers.
 
     ``MainWindow(path=None, *, store=None, theme_controller=None, debug=None)``.
     Without *store* it opens the default Store (``%APPDATA%\\Book Reader``) and
@@ -951,6 +1078,9 @@ class MainWindow(QMainWindow):
     """
 
     _current: "weakref.ReferenceType[MainWindow] | None" = None
+    #: True while every window is closing together (Ctrl+Q): the session must
+    #: keep ALL windows, so the per-close rewrite is suspended.
+    _quitting = False
 
     def __init__(self, path: str | os.PathLike | None = None, *, store: Store | None = None,
                  theme_controller: theme_mod.ThemeController | None = None,
@@ -962,7 +1092,7 @@ class MainWindow(QMainWindow):
         self._own_store = store is None
         self.store: Store = store if store is not None else Store()
         self._shut = False
-        self._reader_title = ""
+        self._slot = WINDOWS.add(self)
         self._fs_outside_zen = False
         self._last_maximized = False
         self._about: AboutDialog | None = None
@@ -982,28 +1112,37 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget(self)
         self.stack.setObjectName("er-stack")
         self.library = LibraryPage(self.store, self.stack, theme=self.theme_controller.theme)
-        self.reader = ReaderPage(self.store, self.stack, theme_controller=self.theme_controller)
         self.stack.addWidget(self.library)
-        self.stack.addWidget(self.reader)
-        self.setCentralWidget(self.stack)
-        # a file dropped on the book goes to the window (and opens), never into Chromium
-        self.reader.view.setAcceptDrops(False)
+
+        # ---- the tab strip (browser-style) ---------------------------------------
+        self.tabbar = TabBar(self)
+        self.new_tab_btn = QToolButton(self)
+        self.new_tab_btn.setObjectName("er-newtab")
+        self.new_tab_btn.setText("+")
+        self.new_tab_btn.setToolTip(S("tabs.new"))
+        self.new_tab_btn.clicked.connect(lambda: self.new_library_tab())
+        self.tabrow = QWidget(self)
+        self.tabrow.setObjectName("er-tabrow")
+        self.tabrow.setProperty("erRole", "tabrow")
+        row = QHBoxLayout(self.tabrow)
+        row.setContentsMargins(6, 0, 6, 0)
+        row.setSpacing(0)
+        row.addWidget(self.tabbar, 1)
+        row.addWidget(self.new_tab_btn, 0)
+        central = QWidget(self)
+        box = QVBoxLayout(central)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(0)
+        box.addWidget(self.tabrow)
+        box.addWidget(self.stack, 1)
+        self.setCentralWidget(central)
         self.library_cheatsheet = CheatSheet(self.library, lambda: self.theme_controller.theme)
         self.library_cheatsheet.closed.connect(lambda: self.library.setFocus())
         self.library.installEventFilter(self)
         self.crash_card = CrashCard(self, lambda: store_mod.log_file(self.store.root))
 
         # ---- wiring ----------------------------------------------------------
-        r, lib = self.reader, self.library
-        r.titleChanged.connect(self._on_reader_title)
-        r.backToLibrary.connect(self.show_library)
-        r.bookOpened.connect(self._on_book_opened)
-        r.bookRemoved.connect(lambda _bid: self.library.refresh())
-        r.openBookRequested.connect(self.open_dialog)
-        r.aboutRequested.connect(self.show_about)
-        r.quitRequested.connect(self.request_quit)
-        r.associateRequested.connect(self.associate_file_type)
-        r.zenChanged.connect(self._on_zen)
+        lib = self.library
         lib.openBook.connect(self.open_path)
         self.theme_controller.themeChanged.connect(lib.apply_theme)
         self.theme_controller.themeChanged.connect(lambda _t: self.library_cheatsheet.update())
@@ -1011,19 +1150,38 @@ class MainWindow(QMainWindow):
         strings.language_changed.subscribe(self.retranslate_ui)
 
         # ---- the keyboard map --------------------------------------------------
-        r.handle_letter_keys = False          # j/k/n/N and / come to the router
-        shell = {
+        self._shell = {
             "open": self.open_dialog,
             "library": self.back_to_library,
             "close_book": self.close_book_or_window,
             "quit": self.request_quit,
-            "fullscreen": self.reader.toggle_fullscreen,
+            "fullscreen": self.toggle_fullscreen,
             "cheatsheet": self.toggle_cheatsheet,
-            "toggle_daynight": self.reader.toggle_day_night,
+            "toggle_daynight": self.toggle_day_night,
+            "new_tab": self.new_library_tab,
+            "next_tab": self.next_tab,
+            "prev_tab": self.prev_tab,
+            "new_window": self.new_window,
         }
-        self.keys = KeyRouter(self, build_bindings(r.action_map(), shell), debug=self._debug)
+        self.keys = KeyRouter(self, build_bindings({}, self._shell), debug=self._debug)
         app.installEventFilter(self.keys)
-        r.pageKeyUnhandled.connect(self.keys.dispatch_page_key)
+
+        # ---- tabs ----------------------------------------------------------------
+        self.tabs: list[_Tab] = []
+        self._active_tab: _Tab | None = None
+        self._pool: list["ReaderPage"] = []         # idle readers, reusable
+        # False until open_path()/restore_session() runs: the start-up tab
+        # activation must not overwrite the saved session before it is restored.
+        self._session_ready = False
+        self.tabbar.currentChanged.connect(self._on_tabbar_current)
+        self.tabbar.tabCloseRequested.connect(self.close_tab)
+        self.tabbar.closeOthersRequested.connect(self._close_other_tabs)
+        self.tabbar.tabMoved.connect(self._on_tab_moved)
+        # One reading surface exists from the start (as it always did), so the
+        # window is instantly ready for a book and `win.reader` is never None.
+        self._pool.append(self._make_reader())
+        self._add_tab(_Tab(kind="library"), at=0)
+        self._activate_tab(0)
 
         # ---- state saving --------------------------------------------------------
         self._geom_timer = QTimer(self)
@@ -1033,7 +1191,6 @@ class MainWindow(QMainWindow):
         app.aboutToQuit.connect(self.shutdown)
 
         MainWindow._current = weakref.ref(self)
-        self.stack.setCurrentWidget(self.library)
         self._update_title()
         if path is not None:
             self.open_path(os.fspath(path))
@@ -1041,7 +1198,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     @classmethod
     def current(cls) -> "MainWindow | None":
-        """The live main window, or None."""
+        """The window to act on: the focused one, else the last one standing."""
+        focused = WINDOWS.focused()
+        if focused is not None:
+            return focused
         ref = cls._current
         win = ref() if ref is not None else None
         try:
@@ -1052,103 +1212,532 @@ class MainWindow(QMainWindow):
             pass
         return None
 
+    # ---- tabs -------------------------------------------------------------
+    @property
+    def reader(self) -> "ReaderPage | None":
+        """The reader to act on: the active tab's, else any live or idle one.
+
+        Code that runs while the shelf is showing (the theme menu, the window
+        title) still finds a reader this way; it is ``None`` only before the
+        window is fully built.
+        """
+        tab = self._active_tab
+        if tab is not None and tab.reader is not None:
+            return tab.reader
+        for t in self.tabs:
+            if t.reader is not None:
+                return t.reader
+        return self._pool[-1] if self._pool else None
+
+    @property
+    def active_reader(self) -> "ReaderPage | None":
+        """The reader of the tab that is showing, if that tab is a book."""
+        tab = self._active_tab
+        return tab.reader if tab is not None and not tab.is_library else None
+
     def is_reading(self) -> bool:
-        return self.stack.currentWidget() is self.reader
+        tab = self._active_tab
+        return tab is not None and not tab.is_library
+
+    def _current_tab(self) -> _Tab | None:
+        return self._active_tab
+
+    def _index_of(self, tab: _Tab) -> int:
+        try:
+            return self.tabs.index(tab)
+        except ValueError:
+            return -1
+
+    def _tab_of_reader(self, reader: "ReaderPage") -> _Tab | None:
+        for t in self.tabs:
+            if t.reader is reader:
+                return t
+        return None
+
+    def _tab_label(self, tab: _Tab) -> str:
+        if tab.is_library:
+            return S("title.library")
+        return tab.title or os.path.splitext(os.path.basename(tab.path or ""))[0] or "…"
+
+    def _add_tab(self, tab: _Tab, at: int | None = None) -> int:
+        """Append (or insert) a tab record and its strip entry; returns the index."""
+        if at is None:
+            at = len(self.tabs)
+        at = max(0, min(at, len(self.tabs)))
+        self.tabs.insert(at, tab)
+        self.tabbar.blockSignals(True)
+        self.tabbar.insertTab(at, self._tab_label(tab))
+        self.tabbar.blockSignals(False)
+        self.tabbar.setTabToolTip(at, self._tab_label(tab))
+        self._style_tab_buttons(at)
+        return at
+
+    def _style_tab_buttons(self, i: int) -> None:
+        """Our own translation on the strip's close button (Qt's is stale-language)."""
+        btn = self.tabbar.tabButton(i, QTabBar.ButtonPosition.RightSide)
+        if btn is not None:
+            btn.setToolTip(S("tabs.close"))
+            btn.setAccessibleName(S("tabs.close"))
+
+    def _remove_tab(self, tab: _Tab) -> None:
+        i = self._index_of(tab)
+        if i < 0:
+            return
+        self.tabs.pop(i)
+        self.tabbar.blockSignals(True)
+        self.tabbar.removeTab(i)
+        self.tabbar.blockSignals(False)
+
+    def _on_tabbar_current(self, i: int) -> None:
+        if 0 <= i < len(self.tabs):
+            self._activate_tab(i)
+
+    def _on_tab_moved(self, a: int, b: int) -> None:
+        try:
+            tab = self.tabs.pop(a)
+            self.tabs.insert(b, tab)
+        except IndexError:
+            return
+        self._save_session()
+
+    def _activate_tab(self, i: int) -> None:
+        """Show tab *i*, building its reader first when it is still a placeholder."""
+        if not (0 <= i < len(self.tabs)):
+            return
+        tab = self.tabs[i]
+        if tab is self._active_tab and (tab.is_library or tab.reader is not None):
+            self._focus_active()
+            return
+        if not tab.is_library and tab.reader is None:
+            self._materialize(tab)
+        self._active_tab = tab
+        if self.tabbar.currentIndex() != i:
+            self.tabbar.blockSignals(True)
+            self.tabbar.setCurrentIndex(i)
+            self.tabbar.blockSignals(False)
+        self.stack.setCurrentWidget(self.library if tab.is_library else tab.reader)
+        self._rebuild_keys()
+        self._update_title()
+        self._update_tabrow_visibility()
+        self._focus_active()
+        self._save_session()
+
+    def _focus_active(self) -> None:
+        tab = self._active_tab
+        if tab is None:
+            return
+        if tab.is_library:
+            self.library.setFocus(Qt.FocusReason.OtherFocusReason)
+        elif tab.reader is not None and tab.reader.book is not None:
+            tab.reader.focus_book()
+
+    def _materialize(self, tab: _Tab) -> None:
+        """Build (or reuse) the ReaderPage of a book tab and open its book."""
+        r = self._pool.pop() if self._pool else self._make_reader()
+        tab.reader = r
+        self.stack.addWidget(r)
+        r.open_book(tab.path)
+        if not tab.title:
+            tab.title = os.path.splitext(os.path.basename(tab.path))[0]
+            i = self._index_of(tab)
+            if i >= 0:
+                self.tabbar.setTabText(i, self._tab_label(tab))
+
+    def _make_reader(self) -> "ReaderPage":
+        r = ReaderPage(self.store, self.stack, theme_controller=self.theme_controller)
+        self.stack.addWidget(r)
+        # a file dropped on the book goes to the window (and opens), never into Chromium
+        r.view.setAcceptDrops(False)
+        r.handle_letter_keys = False          # j/k/n/N and / come to the router
+        r.titleChanged.connect(lambda t, r=r: self._on_reader_title(r, t))
+        r.backToLibrary.connect(lambda r=r: self._reader_wants_library(r))
+        r.bookOpened.connect(lambda bid, r=r: self._on_book_opened(r, bid))
+        r.bookRemoved.connect(lambda _bid: self.library.refresh())
+        r.openBookRequested.connect(self.open_dialog)
+        r.aboutRequested.connect(self.show_about)
+        r.quitRequested.connect(self.request_quit)
+        r.associateRequested.connect(self.associate_file_type)
+        r.zenChanged.connect(lambda _on, r=r: self._on_zen(_on))
+        r.pageKeyUnhandled.connect(self.keys.dispatch_page_key)
+        return r
+
+    def _rebuild_keys(self) -> None:
+        r = self.active_reader
+        self.keys.set_bindings(build_bindings(r.action_map() if r is not None else {}, self._shell))
+
+    def new_library_tab(self) -> None:
+        """Ctrl+T / the "+" button: a fresh tab showing the shelf."""
+        self.show_library()
+
+    def next_tab(self) -> None:
+        """Ctrl+Tab."""
+        if len(self.tabs) > 1:
+            self._activate_tab((self.tabbar.currentIndex() + 1) % len(self.tabs))
+
+    def prev_tab(self) -> None:
+        """Ctrl+Shift+Tab."""
+        if len(self.tabs) > 1:
+            self._activate_tab((self.tabbar.currentIndex() - 1) % len(self.tabs))
+
+    def new_window(self) -> None:
+        """Ctrl+N: another window with its own tabs, the shelf first (like a browser)."""
+        w = MainWindow(store=self.store, theme_controller=self.theme_controller, debug=self._debug)
+        w._session_ready = True          # a fresh window has nothing to restore
+        g = self.normalGeometry() if (self.isMaximized() or self.isFullScreen()) else self.geometry()
+        w.resize(*DEFAULT_SIZE)
+        w.setGeometry(min(g.x() + 44, 4000), min(g.y() + 44, 4000), *DEFAULT_SIZE)
+        w.show()
+        w.raise_()
+        w.activateWindow()
+        self._save_session()
+
+    def close_tab(self, i: int) -> None:
+        """The strip's close button / middle click: drop tab *i*.
+
+        Closing the last tab closes the window, like a browser.
+        """
+        if not (0 <= i < len(self.tabs)):
+            return
+        if len(self.tabs) == 1:
+            self.close()
+            return
+        tab = self.tabs[i]
+        was_active = tab is self._active_tab
+        neighbour = None
+        if was_active:
+            j = i + 1 if i + 1 < len(self.tabs) else i - 1
+            neighbour = self.tabs[j]
+        self._dispose_tab(tab)
+        if was_active and neighbour is not None:
+            self._activate_tab(self._index_of(neighbour))
+        self._save_session()
+
+    def _close_other_tabs(self, keep: int) -> None:
+        """The tab context menu: keep tab *keep*, drop the rest."""
+        if not (0 <= keep < len(self.tabs)):
+            return
+        keep_tab = self.tabs[keep]
+        for tab in list(self.tabs):
+            if tab is not keep_tab:
+                self._dispose_tab(tab)
+        self._activate_tab(self._index_of(keep_tab))
+        self._save_session()
+
+    def _dispose_tab(self, tab: _Tab) -> None:
+        """Close the tab's book (saving it), park its reader, remove the tab.
+
+        One reader is always kept parked for the next book, like the single
+        reading surface the app has always had; extras are shut down for real.
+        """
+        r = tab.reader
+        if r is not None:
+            tab.reader = None
+            if r.book is not None:
+                try:
+                    r.close_book()
+                except Exception:  # noqa: BLE001
+                    log.exception("closing the book failed")
+            self.stack.removeWidget(r)
+            if not self._pool:
+                self._pool.append(r)
+            else:
+                try:
+                    r.shutdown()
+                except Exception:  # noqa: BLE001 - closing one tab must never kill the app
+                    log.exception("reader shutdown failed")
+                r.deleteLater()
+        self._remove_tab(tab)
+        if self._active_tab is tab:
+            self._active_tab = None
+        self._rebuild_keys()
+
+    def _reader_wants_library(self, r: "ReaderPage") -> None:
+        """A reader closed its book and asked for the shelf: drop its tab and
+        land on a neighbour — the shelf if there is none (the old behaviour)."""
+        tab = self._tab_of_reader(r)
+        if tab is None:
+            return
+        if len(self.tabs) == 1:
+            # the only tab: swap it for the shelf instead of closing the window
+            self._dispose_tab(tab)
+            self._add_tab(_Tab(kind="library"), at=0)
+            self._activate_tab(0)
+            return
+        was_active = tab is self._active_tab
+        i = self._index_of(tab)
+        neighbour = None
+        if was_active:
+            j = i + 1 if i + 1 < len(self.tabs) else i - 1
+            neighbour = self.tabs[j]
+        self._dispose_tab(tab)
+        if was_active and neighbour is not None:
+            self._activate_tab(self._index_of(neighbour))
+        if not any(t.is_library for t in self.tabs) and not any(t.reader is not None for t in self.tabs):
+            self._add_tab(_Tab(kind="library"))
+        self._save_session()
+
+    def _session_slice(self) -> dict:
+        """This window's part of the session: its tabs, in order, and the active one."""
+        active = self._active_tab
+        return {
+            "tabs": [t.bid for t in self.tabs if not t.is_library and t.bid],
+            "library": any(t.is_library for t in self.tabs),
+            "active": ("library" if (active is not None and active.is_library)
+                       else (active.bid if active is not None else "")),
+        }
+
+    @staticmethod
+    def _session_slices(session: dict) -> list[dict]:
+        """The stored session as one slice per window (old single-window format
+        is one slice)."""
+        if isinstance(session, dict) and isinstance(session.get("windows"), list):
+            out = [s for s in session["windows"] if isinstance(s, dict)]
+            if out:
+                return out
+        return [session] if session else []
+
+    def _save_session(self) -> None:
+        """Remember every window's open tabs (ids in order, which one is active)."""
+        if self._shut or not self._session_ready:
+            return
+        wins = sorted(WINDOWS.live(), key=lambda w: w._slot)
+        slices = [w._session_slice() for w in wins if w._session_ready]
+        if not slices:
+            slices = [self._session_slice()]
+        # one window keeps the historical flat shape; several get "windows"
+        if len(slices) == 1:
+            self.store.set("window.session", slices[0])
+        else:
+            self.store.set("window.session", {"windows": slices})
 
     # ---- pages ---------------------------------------------------------------
-    def open_path(self, path: str) -> None:
-        """Open a book (shelf double-click, Ctrl+O, argv, a second launch, a drop)."""
+    def open_path(self, path: str, *, new_tab: bool = False) -> None:
+        """Open a book.
+
+        Like a browser: the current tab navigates — a shelf tab becomes the
+        book's tab, a book tab swaps its book (the reading surface is reused).
+        ``new_tab=True`` (a second launch, a drop on a reading window) opens a
+        separate tab instead.          A book already open in some tab just focuses it.
+        """
+        self._session_ready = True
         path = os.path.abspath(path)
-        r = self.reader
-        cur = r.book
-        if cur is not None and os.path.normcase(os.path.abspath(cur.path)) == os.path.normcase(path):
-            self._show_reader()
-            r.focus_book()
-            return
+        for t in self.tabs:
+            if not t.is_library and t.path and os.path.normcase(t.path) == os.path.normcase(path):
+                self._activate_tab(self._index_of(t))
+                return
         log.info("open %s", path)
         self.library_cheatsheet.dismiss()
-        r.open_book(path)
-        self._show_reader()
-        if r.book is None:
+        cur = self._active_tab
+        if not new_tab and cur is not None and not cur.is_library and cur.reader is not None:
+            # navigate this tab: swap the book in the reader it already has
+            cur.path, cur.bid = path, ""
+            cur.title = os.path.splitext(os.path.basename(path))[0]
+            i = self._index_of(cur)
+            if i >= 0:
+                self.tabbar.setTabText(i, self._tab_label(cur))
+                self.tabbar.setTabToolTip(i, self._tab_label(cur))
+            cur.reader.open_book(path)
+            self._update_title()
+            if cur.reader.book is None:
+                self.store.set("window.last_route", {"kind": "library", "book_id": None})
+            self._focus_active()
+            return
+        tab = _Tab(kind="book", path=path, title=os.path.splitext(os.path.basename(path))[0])
+        if cur is not None and cur.is_library and not new_tab:
+            i = self._index_of(cur)              # the shelf tab becomes the book's tab
+            self._dispose_tab(cur)
+            i = self._add_tab(tab, at=min(i, len(self.tabs)))
+        else:
+            i = self._add_tab(tab, at=(self.tabbar.currentIndex() + 1) if cur is not None
+                             else len(self.tabs))
+        self._activate_tab(i)
+        r = tab.reader
+        if r is None or r.book is None:
             self.store.set("window.last_route", {"kind": "library", "book_id": None})
 
-    def _show_reader(self) -> None:
-        if self.stack.currentWidget() is not self.reader:
-            self.stack.setCurrentWidget(self.reader)
-        self._update_title()
-        if self.reader.book is not None:
-            self.reader.focus_book()
-
     def show_library(self) -> None:
-        """The shelf (the reader has already closed its book)."""
-        self.stack.setCurrentWidget(self.library)
-        self.store.set("window.last_route", {"kind": "library", "book_id": None})
-        self._update_title()
-        self.library.setFocus(Qt.FocusReason.OtherFocusReason)
+        """Ctrl+T / Ctrl+Shift+L: focus the shelf tab, creating one if needed."""
+        for i, t in enumerate(self.tabs):
+            if t.is_library:
+                self._activate_tab(i)
+                return
+        at = self.tabbar.currentIndex() + 1
+        self._activate_tab(self._add_tab(_Tab(kind="library"), at=at))
 
     def back_to_library(self) -> None:
-        """Ctrl+Shift+L: close the book (saved) and show the shelf."""
+        """Ctrl+Shift+L: close the book's tab (saved) and show the shelf."""
         if self.is_reading():
-            self.reader.back_to_library()
-        else:
-            self.show_library()
+            r = self.active_reader
+            if r is not None:
+                r.back_to_library()
+                return
+        self.show_library()
 
     def close_book_or_window(self) -> None:
-        """Ctrl+W: close the book and return to the shelf; on the shelf, close the window."""
+        """Ctrl+W: close the book's tab; on the shelf tab, close the window."""
         if self.is_reading():
-            self.reader.close_and_return()
-            self.library.notify(lambda: S("status.back_to_library"), timeout_ms=BACK_TO_LIBRARY_NOTE_MS)
-        else:
-            self.close()
+            r = self.active_reader
+            if r is not None:
+                r.close_and_return()
+                self.library.notify(lambda: S("status.back_to_library"), timeout_ms=BACK_TO_LIBRARY_NOTE_MS)
+                return
+        self.close()
 
     def open_dialog(self) -> None:
         """Ctrl+O: the file dialog; the chosen book is shelved, then opened."""
         self.library.open_book_dialog()
 
     def request_quit(self) -> None:
-        """Ctrl+Q / 退出."""
-        self.close()
+        """Ctrl+Q / 退出: every window closes, then the app quits."""
+        MainWindow._quitting = True
+        for w in list(WINDOWS.all):
+            w.close()
         QCoreApplication.quit()
 
     def toggle_cheatsheet(self) -> None:
         """F1 / Ctrl+/ on either page."""
         if self.is_reading():
-            self.reader.toggle_cheatsheet()
+            r = self.active_reader
+            if r is not None:
+                r.toggle_cheatsheet()
         elif self.library_cheatsheet.isVisible():
             self.library_cheatsheet.dismiss()
         else:
             self.library_cheatsheet.open()
 
-    def restore_last_route(self) -> None:
-        """Reopen the last book if the setting allows it and the file is there."""
-        route = self.store.get("window.last_route") or {}
-        if bool(self.store.get("behavior.restore_last_book_on_launch", True)) \
-                and isinstance(route, dict) and route.get("kind") == "book" and route.get("book_id"):
-            entry = self.store.library_get(str(route["book_id"])) or {}
+    def toggle_fullscreen(self) -> None:
+        """F11: full screen (through the active reader when there is one)."""
+        r = self.active_reader
+        if r is not None:
+            r.toggle_fullscreen()
+        elif self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def toggle_day_night(self) -> None:
+        """Ctrl+Shift+D: light ⇄ dark."""
+        r = self.active_reader
+        if r is not None:
+            r.toggle_day_night()
+        else:
+            self.set_theme_choice("light" if self.theme_controller.theme.is_dark else "dark")
+
+    def set_theme_choice(self, choice: str) -> None:
+        """The shelf's theme menu: light / sepia / dark / system."""
+        r = self.reader
+        if r is not None:
+            r.set_theme_choice(choice)
+        else:
+            choice = store_mod.normalize_theme_choice(choice)
+            self.store.set("reader.theme", choice)
+            self.theme_controller.set_choice(choice)
+
+    def restore_session(self, slice_dict: dict | None = None) -> None:
+        """Reopen the last session's tabs (the active one eagerly, the rest lazy).
+
+        *slice_dict* restores this window's own part of a multi-window session
+        (windows after the first pass theirs in); without it the stored session
+        is read, and the very first launch after the tab update has no session
+        saved yet: fall back to the old single-window ``window.last_route``.
+        """
+        self._session_ready = True
+        restore = bool(self.store.get("behavior.restore_last_book_on_launch", True))
+        session = slice_dict if slice_dict is not None else self.store.get("window.session")
+        session = session if isinstance(session, dict) else None
+        if session is None:
+            route = self.store.get("window.last_route") or {}
+            if restore and isinstance(route, dict) and route.get("kind") == "book" and route.get("book_id"):
+                entry = self.store.library_get(str(route["book_id"])) or {}
+                path = str(entry.get("path") or "")
+                if path and os.path.isfile(path):
+                    self.open_path(path)
+                    return
+            self._activate_tab(0)
+            return
+        if not restore:
+            self._activate_tab(0)
+            return
+        bids = [str(b) for b in (session.get("tabs") or []) if str(b)]
+        tabs: list[_Tab] = []
+        for bid in bids:
+            entry = self.store.library_get(bid) or {}
             path = str(entry.get("path") or "")
             if path and os.path.isfile(path):
-                self.open_path(path)
-                return
-        self.show_library()
+                tabs.append(_Tab(kind="book", bid=bid, path=path,
+                                 title=str(entry.get("title") or "")))
+        want_library = bool(session.get("library")) or not tabs
+        active_bid = str(session.get("active") or "")
+        cur = self._current_tab()
+        if cur is not None and cur.is_library and tabs:
+            self._dispose_tab(cur)              # the placeholder shelf tab from __init__
+        start = 0
+        for t in tabs:
+            self._add_tab(t)
+        if want_library and not any(t.is_library for t in self.tabs):
+            self._add_tab(_Tab(kind="library"))
+        for i, t in enumerate(self.tabs):
+            if not t.is_library and t.bid == active_bid:
+                start = i
+                break
+        else:
+            if want_library:
+                start = next((i for i, t in enumerate(self.tabs) if t.is_library), 0)
+        self._activate_tab(start)
 
-    def _on_book_opened(self, bid: str) -> None:
+    def _on_book_opened(self, r: "ReaderPage", bid: str) -> None:
+        tab = self._tab_of_reader(r)
+        if tab is not None:
+            tab.bid = bid
         self.store.set("window.last_route", {"kind": "book", "book_id": bid})
+        self._save_session()
+        # Heal a shelf title that predates a converter fix (DjVu titles used to
+        # lose the underscores of the file name they came from).
+        book = r.book
+        if book is not None and getattr(book, "source_format", "") == "djvu":
+            md_title = str((book.metadata or {}).get("title") or "").strip()
+            entry = self.store.library_get(bid) or {}
+            if md_title and entry.get("title") and str(entry.get("title")).strip() != md_title:
+                self.store.library_update(bid, title=md_title)
+                if tab is not None and tab.title == str(entry.get("title")):
+                    tab.title = md_title
+                    i = self._index_of(tab)
+                    if i >= 0:
+                        self.tabbar.setTabText(i, self._tab_label(tab))
 
-    def _on_reader_title(self, title: str) -> None:
-        self._reader_title = title
-        self._update_title()
+    def _on_reader_title(self, r: "ReaderPage", title: str) -> None:
+        tab = self._tab_of_reader(r)
+        if tab is not None:
+            tab.title = title
+            i = self._index_of(tab)
+            if i >= 0:
+                self.tabbar.setTabText(i, self._tab_label(tab))
+                self.tabbar.setTabToolTip(i, self._tab_label(tab))
+        if tab is self._active_tab:
+            self._update_title()
 
     def _update_title(self) -> None:
-        r = self.reader
-        if self.is_reading() and (r.book is not None or r.error_spec() is not None) and self._reader_title:
-            self.setWindowTitle(self._reader_title)
-        else:
-            self.setWindowTitle(S("title.library"))
+        tab = self._active_tab
+        if tab is not None and not tab.is_library:
+            r = tab.reader
+            if (r is not None and (r.book is not None or r.error_spec() is not None)
+                    and tab.title):
+                self.setWindowTitle(tab.title)
+                return
+            if tab.title:
+                self.setWindowTitle(tab.title)
+                return
+        self.setWindowTitle(S("title.library"))
 
     def retranslate_ui(self) -> None:
         self._retranslate_library_menu()
         self.crash_card.retranslate_ui()
         self.library_cheatsheet.retranslate_ui()
+        self.new_tab_btn.setToolTip(S("tabs.new"))
+        for i, t in enumerate(self.tabs):
+            self.tabbar.setTabText(i, self._tab_label(t))
+            self.tabbar.setTabToolTip(i, self._tab_label(t))
+            self._style_tab_buttons(i)
         self._update_title()
 
     # ---- the shelf's "…" menu --------------------------------------------------
@@ -1168,6 +1757,7 @@ class MainWindow(QMainWindow):
 
         add("open", self.open_dialog)
         add("add_folder", self.library.add_folder_dialog)
+        add("new_window", self.new_window)
         menu.addSeparator()
         self._lang_menu = menu.addMenu("")
         self._lang_menu.setObjectName("LibraryLanguageMenu")
@@ -1184,7 +1774,7 @@ class MainWindow(QMainWindow):
         tgroup = QActionGroup(self._theme_menu)
         self._theme_actions: dict[str, QAction] = {}
         for name in store_mod.THEME_CHOICES:
-            act = add(f"theme-{name}", lambda n=name: self.reader.set_theme_choice(n), self._theme_menu)
+            act = add(f"theme-{name}", lambda n=name: self.set_theme_choice(n), self._theme_menu)
             act.setCheckable(True)
             tgroup.addAction(act)
             self._theme_actions[name] = act
@@ -1201,6 +1791,7 @@ class MainWindow(QMainWindow):
         a = self._library_actions
         a["open"].setText(S("menu.open") + "	" + KEYS["open"][0])
         a["add_folder"].setText(S("lib.add_folder"))
+        a["new_window"].setText(S("menu.new_window") + "	" + KEYS["new_window"][0])
         a["shortcuts"].setText(S("menu.shortcuts") + "	" + KEYS["cheatsheet"][0])
         a["about"].setText(S("menu.about"))
         a["quit"].setText(S("menu.quit") + "	" + KEYS["quit"][0])
@@ -1235,7 +1826,7 @@ class MainWindow(QMainWindow):
         script = webhost.resource_path("tools", "install-file-association.ps1")
         if not getattr(sys, "frozen", False) or not os.path.isfile(script):
             log.info("file association needs the packaged exe; not registering python.exe")
-            self.reader.show_message(lambda: S("set.assoc.failed"), ms=6000)
+            self._notify_reader(lambda: S("set.assoc.failed"))
             return
         from PySide6.QtCore import QProcess
 
@@ -1244,12 +1835,17 @@ class MainWindow(QMainWindow):
         def done(code: int, _status: Any) -> None:
             ok = code == 0
             log.info("file association script exited %s", code)
-            self.reader.show_message(lambda: S("set.assoc.done" if ok else "set.assoc.failed"), ms=6000)
+            self._notify_reader(lambda: S("set.assoc.done" if ok else "set.assoc.failed"))
             proc.deleteLater()
 
         proc.finished.connect(done)
         proc.start("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
                                       "-ExePath", sys.executable])
+
+    def _notify_reader(self, text: Callable[[], str]) -> None:
+        r = self.reader
+        if r is not None:
+            r.show_message(text, ms=6000)
 
     def show_internal_error(self, text: str) -> None:
         """The non-fatal error card (called by the exception hook)."""
@@ -1264,9 +1860,13 @@ class MainWindow(QMainWindow):
         """``OPEN <path>`` from a second launch (or ``ACTIVATE``)."""
         log.info("second launch: %s", msg)
         cmd, _, arg = msg.partition(" ")
+        target = WINDOWS.focused(default=self) or self
         if cmd == "OPEN" and arg.strip():
-            self.open_path(arg.strip())
-        self.bring_to_front()
+            target.open_path(arg.strip(), new_tab=True)
+        else:
+            # a bare second launch: a fresh tab on the shelf, like a browser
+            target.show_library()
+        target.bring_to_front()
 
     def bring_to_front(self) -> None:
         if self.isMinimized():
@@ -1277,9 +1877,15 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     # ---- window state -------------------------------------------------------------
+    def _wkey(self, base: str) -> str:
+        """This window's variant of a ``window.*`` setting: slot 0 (the only
+        window, and the historical one) keeps the plain key, later windows get
+        ``<base>.w<n>`` so they do not fight over one geometry."""
+        return base if self._slot == 0 else f"{base}.w{self._slot}"
+
     def restore_window_state(self) -> None:
         """Geometry, maximized and full screen from ``window.*``; then show."""
-        g = self.store.get("window.geometry") or {}
+        g = self.store.get(self._wkey("window.geometry")) or {}
         try:
             x, y = int(g.get("x", -1)), int(g.get("y", -1))
             w = max(MIN_SIZE[0], int(g.get("w", DEFAULT_SIZE[0])))
@@ -1294,50 +1900,65 @@ class MainWindow(QMainWindow):
             self.setGeometry(target)
         else:
             screen = QGuiApplication.primaryScreen()
-            name = str(self.store.get("window.screen") or "")
+            name = str(self.store.get(self._wkey("window.screen")) or "")
             for s in screens:
                 if s.name() == name:
                     screen = s
             avail = screen.availableGeometry() if screen is not None else QRect(0, 0, *DEFAULT_SIZE)
             w, h = min(w, avail.width()), min(h, avail.height())
             self.setGeometry(avail.x() + (avail.width() - w) // 2, avail.y() + (avail.height() - h) // 2, w, h)
-        self._last_maximized = bool(self.store.get("window.maximized", False))
+        self._last_maximized = bool(self.store.get(self._wkey("window.maximized"), False))
         if self._last_maximized:
             self.showMaximized()
         else:
             self.show()
-        if bool(self.store.get("window.fullscreen", False)):
-            self.reader.toggle_fullscreen()
+        if bool(self.store.get(self._wkey("window.fullscreen"), False)):
+            r = self.active_reader
+            if r is not None:
+                r.toggle_fullscreen()
+            else:
+                self.showFullScreen()
 
     def save_window_state(self) -> None:
-        fs = self._fs_outside_zen if self.reader.is_zen() else self.isFullScreen()
+        r = self.reader
+        zen = bool(r is not None and r.is_zen())
+        fs = self._fs_outside_zen if zen else self.isFullScreen()
         maximized = self._last_maximized if self.isFullScreen() else self.isMaximized()
         g = self.normalGeometry() if (self.isMaximized() or self.isFullScreen()) else self.geometry()
         if g.width() <= 0 or g.height() <= 0:
             g = self.geometry()
         screen = self.screen()
         self.store.update({
-            "window.geometry": {"x": g.x(), "y": g.y(), "w": g.width(), "h": g.height()},
-            "window.maximized": bool(maximized),
-            "window.fullscreen": bool(fs),
-            "window.zen": False,
-            "window.screen": screen.name() if screen is not None else "",
+            self._wkey("window.geometry"): {"x": g.x(), "y": g.y(), "w": g.width(), "h": g.height()},
+            self._wkey("window.maximized"): bool(maximized),
+            self._wkey("window.fullscreen"): bool(fs),
+            self._wkey("window.zen"): False,
+            self._wkey("window.screen"): screen.name() if screen is not None else "",
         })
 
     def _on_zen(self, _on: bool) -> None:
         self._geom_timer.start()
+        self._update_tabrow_visibility()
+
+    def _update_tabrow_visibility(self) -> None:
+        """The tab strip hides with the rest of the chrome (focus mode, full screen)."""
+        r = self.active_reader
+        hide = self.isFullScreen() or (r is not None and r.is_zen())
+        self.tabrow.setVisible(not hide)
 
     # ---- events ---------------------------------------------------------------------
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802
         if event.type() == QEvent.Type.WindowStateChange:
             if not self.isFullScreen() and not self.isMinimized():
                 self._last_maximized = self.isMaximized()
-            if not self.reader.is_zen():
+            r = self.reader
+            if r is None or not r.is_zen():
                 # focus mode enters full screen itself; remember the state outside it
                 self._fs_outside_zen = self.isFullScreen()
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange:
             self._geom_timer.start()
+            self._update_tabrow_visibility()
 
     def moveEvent(self, event: Any) -> None:  # noqa: N802
         super().moveEvent(event)
@@ -1381,14 +2002,26 @@ class MainWindow(QMainWindow):
         event.acceptProposedAction()
         if len(paths) > 1:
             self.library.add_paths(paths[1:], open_single=False)
-        self.open_path(paths[0])
+        # dropped on a book: a new tab, like a browser; on the shelf: navigate it
+        self.open_path(paths[0], new_tab=self.is_reading())
 
     def closeEvent(self, event: Any) -> None:  # noqa: N802
         self.shutdown()
+        if not MainWindow._quitting:
+            # One window closed by the user: its tabs do not come back, so the
+            # session is rewritten from the windows that remain.  The last
+            # window leaves the session untouched — its tabs are restored on
+            # the next launch, exactly as the single-window app always did.
+            try:
+                live = WINDOWS.live()
+                if live and live[0]._session_ready:
+                    live[0]._save_session()
+            except Exception:  # noqa: BLE001
+                log.exception("could not rewrite the session")
         super().closeEvent(event)
 
     def shutdown(self) -> None:
-        """Save the window, close the book, stop workers, flush the Store.  Idempotent."""
+        """Save the window, close every book, stop workers, flush the Store.  Idempotent."""
         if self._shut:
             return
         try:
@@ -1396,14 +2029,22 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001
             log.exception("could not save the window state")
         self._shut = True
+        WINDOWS.remove(self)
         self._geom_timer.stop()
         app = QApplication.instance()
         if app is not None:
             app.removeEventFilter(self.keys)
-        try:
-            self.reader.shutdown()
-        except Exception:  # noqa: BLE001
-            log.exception("reader shutdown failed")
+        readers = [t.reader for t in self.tabs if t.reader is not None] + list(self._pool)
+        seen: set[int] = set()
+        for r in readers:
+            if id(r) in seen:
+                continue
+            seen.add(id(r))
+            try:
+                r.shutdown()
+            except Exception:  # noqa: BLE001
+                log.exception("reader shutdown failed")
+        self._pool.clear()
         try:
             self.library.shutdown()
         except Exception:  # noqa: BLE001
@@ -1544,7 +2185,10 @@ def main(argv: Sequence[str] | None = None, *,
         store = Store()
         for n in store.load_notes:
             log.warning("store: %s", n)
-        win = MainWindow(store=store, debug=debug)
+        # one theme controller for every window: a theme picked in any window
+        # applies to all of them (it targets the application anyway)
+        theme_controller = theme_mod.ThemeController(app, store.get("reader.theme", "system"))
+        win = MainWindow(store=store, theme_controller=theme_controller, debug=debug)
     except Exception:
         log.exception("start-up failed")
         from PySide6.QtWidgets import QMessageBox
@@ -1560,10 +2204,27 @@ def main(argv: Sequence[str] | None = None, *,
     if path:
         win.open_path(path)
     else:
-        win.restore_last_route()
+        win.restore_session()
+        # a multi-window session: every window after the first is restored here
+        slices = MainWindow._session_slices(store.get("window.session") or {})
+        for sl in slices[1:]:
+            extra_win: MainWindow | None = None
+            try:
+                extra_win = MainWindow(store=store, theme_controller=theme_controller, debug=debug)
+                extra_win.restore_window_state()
+                extra_win.restore_session(sl)
+            except Exception:  # noqa: BLE001
+                log.exception("could not restore a session window")
+                if extra_win is not None:
+                    try:
+                        extra_win.close()
+                    except Exception:  # noqa: BLE001
+                        pass
     if on_started is not None:
         QTimer.singleShot(0, lambda: on_started(win))
     rc = app.exec()
+    for w in list(WINDOWS.all):
+        w.shutdown()
     win.shutdown()
     if inst is not None:
         inst.close()

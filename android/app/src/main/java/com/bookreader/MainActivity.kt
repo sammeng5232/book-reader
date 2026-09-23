@@ -224,6 +224,16 @@ class MainActivity : AppCompatActivity() {
         typesetStartMs = 0L
         showProgress(null)                          // indeterminate until the first report
         bar.post(typesetTicker)                     // keeps the typeset percentage moving
+        // Long conversions must survive battery managers (Samsung freezes the app
+        // the moment the screen is off): run under a foreground service.  Ask for
+        // the notification permission once (Android 13+); the service also works
+        // with the notification silenced.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7)
+        }
+        ConvertService.start(this)
         thread {
             val started = System.currentTimeMillis()
             val result = if (file.extension.lowercase() in setOf("djvu", "djv")) {
@@ -233,23 +243,56 @@ class MainActivity : AppCompatActivity() {
                 Converter.convertBook(this, file.absolutePath, work, listener = progressListener())
             }
             val seconds = (System.currentTimeMillis() - started) / 1000.0
+            val ok = result.optBoolean("ok")
+            // "ok" only means the pipeline ran.  A missing pdf with ok=true is the
+            // typesetter failing; its errors come back in "problems" and must be
+            // shown to the user, not a success message reading "pages: 0".
+            val pdfPath = result.optString("pdf").takeIf { it.isNotEmpty() && it != "null" }
+            val problems = result.optJSONArray("problems")?.let { ja ->
+                (0 until ja.length()).mapNotNull { ja.optString(it).ifEmpty { null } }
+            } ?: emptyList()
             // move every produced file to Downloads/Book Reader
-            val saved = if (result.optBoolean("ok")) publishResults(work, file.nameWithoutExtension) else emptyList()
+            val saved = if (ok) publishResults(work) else emptyList()
+            val savedList = if (saved.isEmpty()) "" else buildString {
+                append("\nSaved to Downloads/Book Reader:")
+                for (name in saved.take(12)) append("\n  $name")
+                if (saved.size > 12) append("\n  … and ${saved.size - 12} more")
+            }
             runOnUiThread {
                 setBusy(false)
                 hideProgress()
-                if (result.optBoolean("ok")) {
-                    say(buildString {
-                        append("${file.name}\n")
-                        append("pages: ${result.optInt("pages")}")
-                        if (saved.isNotEmpty()) {
-                            append("\nSaved to Downloads/Book Reader:")
-                            for (name in saved) append("\n  $name")
+                ConvertService.stop(this@MainActivity)
+                when {
+                    !ok -> {
+                        Log.e("BookReader", "conversion failed: ${result.optString("error")}" +
+                                "\n${result.optString("trace")}")
+                        say(buildString {
+                            append("Conversion failed: ${result.optString("error")}")
+                            val detail = result.optString("detail")
+                            if (detail.isNotEmpty() && detail != "null") append("\n$detail")
+                        })
+                    }
+                    pdfPath == null -> {
+                        Log.e("BookReader", "typesetter produced no PDF: ${problems.joinToString(" | ")}")
+                        say(buildString {
+                            append("${file.name}\n")
+                            append("The LaTeX source was written, but the typesetter produced no PDF:")
+                            for (p in problems.take(5)) append("\n  $p")
+                            append(savedList)
+                            append("\n(${"%.1f".format(seconds)} s)")
+                        })
+                    }
+                    else -> {
+                        if (problems.isNotEmpty()) {
+                            Log.w("BookReader", "conversion problems: ${problems.joinToString(" | ")}")
                         }
-                        append("\n(${"%.1f".format(seconds)} s)")
-                    })
-                } else {
-                    say("Conversion failed: ${result.optString("error")}")
+                        say(buildString {
+                            append("${file.name}\n")
+                            append("pages: ${result.optInt("pages")}")
+                            append(savedList)
+                            append("\n(${"%.1f".format(seconds)} s)")
+                        })
+                    }
                 }
             }
         }
@@ -257,30 +300,64 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Copy every file the converter produced under [work] into the public
-     * `Downloads/Book Reader/` folder via MediaStore (no permission needed), and
-     * return the display names.  The private copies are deleted afterwards.
+     * `Downloads/Book Reader/` folder via MediaStore (no permission needed),
+     * keeping the converter's folder layout (`<title>/<title>.tex`,
+     * `<title>/images/…`) so the .tex still finds its pictures when it is
+     * compiled elsewhere.  Returns the published relative paths.  The private
+     * copies are deleted afterwards.
      */
-    private fun publishResults(work: File, bookName: String): List<String> {
+    private fun publishResults(work: File): List<String> {
         val saved = ArrayList<String>()
         val files = work.walkTopDown().filter { it.isFile }.toList()
+        val store = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val colRel = android.provider.MediaStore.MediaColumns.RELATIVE_PATH
+        val colName = android.provider.MediaStore.MediaColumns.DISPLAY_NAME
+        val colId = android.provider.BaseColumns._ID
         for (f in files) {
-            // keep the converter's folder layout: <title>/<title>.tex, <title>/images/…
             val rel = f.relativeTo(work).path.replace(File.separatorChar, '/')
-            val display = "$bookName/$rel"
+            val dir = rel.substringBeforeLast('/', "")
             runCatching {
                 val values = android.content.ContentValues().apply {
                     put(android.provider.MediaStore.Downloads.DISPLAY_NAME, f.name)
-                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download/Book Reader/$bookName")
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH,
+                        if (dir.isEmpty()) "Download/Book Reader" else "Download/Book Reader/$dir")
                     put(android.provider.MediaStore.Downloads.MIME_TYPE,
                         if (f.extension.lowercase() == "pdf") "application/pdf" else "application/octet-stream")
                 }
-                val uri = contentResolver.insert(
-                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
-                    saved.add(display)
+                val uri = contentResolver.insert(store, values)
+                    ?: throw java.io.IOException("MediaStore refused ${f.name}")
+                contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
+                // MediaStore never replaces: a taken name silently becomes "name (1)"
+                // (or, under load, a "folder (2)").  Detect the rename and take the
+                // name back: free it, then rename our fresh file into place.
+                val got = contentResolver.query(uri, arrayOf(colName), null, null, null)
+                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                if (got != null && got != f.name) {
+                    val base = if (dir.isEmpty()) "Download/Book Reader" else "Download/Book Reader/$dir"
+                    contentResolver.query(store, arrayOf(colId),
+                        "($colRel=? OR $colRel=?) AND $colName=?", arrayOf(base, "$base/", f.name), null)
+                        ?.use { c ->
+                            val ids = ArrayList<Long>()
+                            while (c.moveToNext()) ids.add(c.getLong(0))
+                            for (id in ids) contentResolver.delete(
+                                android.net.Uri.withAppendedPath(store, id.toString()), null, null)
+                        }
+                    val up = android.content.ContentValues()
+                    up.put(colName, f.name)
+                    fun currentName(): String? = contentResolver.query(uri, arrayOf(colName), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                    contentResolver.update(uri, up, null, null)
+                    if (currentName() != f.name) {     // rare: the freed name needs a beat
+                        Thread.sleep(250)
+                        contentResolver.update(uri, up, null, null)
+                    }
+                    val now = currentName()
+                    if (now != f.name) {
+                        Log.w("BookReader", "publish: could not reclaim the name ${f.name} (is $now)")
+                    }
                 }
-            }.onFailure { Log.w("BookReader", "publish failed for $display", it) }
+                saved.add(rel)
+            }.onFailure { Log.w("BookReader", "publish failed for $rel", it) }
         }
         work.deleteRecursively()
         return saved

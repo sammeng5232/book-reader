@@ -68,6 +68,7 @@ TABLE: dict[str, str] = {
 
     # ---- overflow menu ----
     "menu.open": "打开书籍…",
+    "menu.new_window": "新建窗口",
     "menu.library": "回到书架",
     "menu.bookinfo": "书籍信息",
     "menu.export": "导出批注…",
@@ -518,6 +519,8 @@ TABLE: dict[str, str] = {
     "keys.group.panels": "面板",
     "keys.group.actions": "操作",
     "keys.group.window": "窗口与应用",
+    "keys.group.tabs": "标签页",
+    "keys.group.windows": "窗口",
     "keys.group.library": "书架",
     "keys.next_page": "下一页",
     "keys.prev_page": "上一页",
@@ -550,8 +553,17 @@ TABLE: dict[str, str] = {
     "keys.zen": "专注模式",
     "keys.open": "打开书籍…",
     "keys.library": "回到书架",
-    "keys.close_book": "关闭当前书并回到书架；在书架时关闭窗口",
+    "keys.close_book": "关闭当前书及其标签页；在书架标签页时关闭窗口",
     "keys.quit": "退出",
+    "keys.new_tab": "新建标签页（书架）",
+    "keys.next_tab": "下一个标签页",
+    "keys.prev_tab": "上一个标签页",
+    "keys.new_window": "新建窗口",
+
+    # ---- tabs ----
+    "tabs.new": "新建标签页（打开书架）",
+    "tabs.close": "关闭标签页",
+    "tabs.close_others": "关闭其他标签页",
     "keys.lib_move": "移动选择",
     "keys.lib_open": "打开所选书籍",
     "keys.lib_focus_search": "聚焦搜索框",

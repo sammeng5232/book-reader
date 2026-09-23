@@ -292,6 +292,16 @@ class AppGui(unittest.TestCase):
         finally:
             box.cleanup()
 
+    def test_j_windows(self) -> None:
+        """Ctrl+N: multiple windows, each with its own tabs; both survive a restart."""
+        box = Sandbox("windows")
+        try:
+            self._run("windows", box)
+            self._run("windows_b", box)
+            self.assertEqual(log_problems(box.log_text()), [])
+        finally:
+            box.cleanup()
+
     def test_f_language(self) -> None:
         box = Sandbox("lang")
         try:

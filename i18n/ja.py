@@ -76,6 +76,7 @@ TABLE: dict[str, str] = {
 
     # ---- overflow menu ----
     "menu.open": "本を開く…",
+    "menu.new_window": "新しいウィンドウ",
     "menu.library": "本棚に戻る",
     "menu.bookinfo": "本の情報",
     "menu.export": "ハイライトをエクスポート…",
@@ -526,6 +527,8 @@ TABLE: dict[str, str] = {
     "keys.group.panels": "パネル",
     "keys.group.actions": "操作",
     "keys.group.window": "ウィンドウとアプリ",
+    "keys.group.tabs": "タブ",
+    "keys.group.windows": "ウィンドウ",
     "keys.group.library": "本棚",
     "keys.next_page": "次のページ",
     "keys.prev_page": "前のページ",
@@ -558,8 +561,17 @@ TABLE: dict[str, str] = {
     "keys.zen": "集中モード",
     "keys.open": "本を開く…",
     "keys.library": "本棚に戻る",
-    "keys.close_book": "本を閉じて本棚に戻る（本棚ではウィンドウを閉じる）",
+    "keys.close_book": "本とそのタブを閉じる（書棚タブではウィンドウを閉じる）",
     "keys.quit": "終了",
+    "keys.new_tab": "新しいタブ（書棚）",
+    "keys.next_tab": "次のタブ",
+    "keys.prev_tab": "前のタブ",
+    "keys.new_window": "新しいウィンドウ",
+
+    # ---- tabs ----
+    "tabs.new": "新しいタブ（書棚を開く）",
+    "tabs.close": "タブを閉じる",
+    "tabs.close_others": "他のタブを閉じる",
     "keys.lib_move": "選択を移動",
     "keys.lib_open": "選択した本を開く",
     "keys.lib_focus_search": "検索ボックスに移動",

@@ -171,7 +171,7 @@ def _norm_path(path: str) -> str:
     return os.path.normcase(os.path.abspath(path)) if path else ""
 
 
-_FORMAT_NAMES = {"epub": "EPUB", "mobi": "MOBI", "azw3": "AZW3", "djvu": "DjVu"}
+_FORMAT_NAMES = {"epub": "EPUB", "mobi": "MOBI", "azw3": "AZW3", "djvu": "DjVu", "pdf": "PDF"}
 
 
 def is_epub_path(path: str) -> bool:
@@ -823,6 +823,10 @@ def read_library_entry(path: str, book_id: str, *, cover_file: str | None = None
     try:
         book = bookformats.open_book(full, cache_root=cache_root, content_key=book_id)
     except EpubError as exc:
+        if exc.kind == "password":
+            entry.update(title=stem, authors=[], format="PDF", password_protected=True,
+                         cover="", cover_w=0, cover_h=0)
+            return entry
         if exc.kind == "drm":
             entry.update(title=stem, authors=[], drm=exc.drm_scheme or "unknown", cover="",
                          cover_w=0, cover_h=0)
@@ -1973,7 +1977,7 @@ class BookInfoDialog(QDialog):
             add("info.layout", S("info.layout.fixed" if e["layout"] == "fixed" else "info.layout.reflowable"))
         if e.get("spine_count"):
             # a DjVu book's spine is its scanned pages, not chapters
-            add("info.pages" if e.get("format") == "DjVu" else "info.chapters",
+            add("info.pages" if e.get("format") in ("DjVu", "PDF") else "info.chapters",
                 loc.toString(int(e["spine_count"])))
         if e.get("units_total"):
             add("info.units", S("info.units.value", n=loc.toString(int(e["units_total"]))))
@@ -3038,9 +3042,11 @@ class LibraryPage(QWidget):
         a.setObjectName("ctx.info")
         a.triggered.connect(lambda: self.show_book_info(bid))
         djvu = str(e.get("format") or "").lower() == "djvu" or path.lower().endswith((".djvu", ".djv"))
+        pdf = str(e.get("format") or "").lower() == "pdf" or path.lower().endswith(".pdf")
         a = menu.addAction(S("menu.convert_pdf" if djvu else "menu.convert"))
         a.setObjectName("ctx.convert")
-        a.setEnabled(bool(path) and os.path.isfile(path))
+        a.setEnabled(bool(path) and os.path.isfile(path) and not pdf)
+        a.setVisible(not pdf)
         a.triggered.connect(lambda: self.convert_book(bid))
         menu.addSeparator()
         a = menu.addAction(f"{S('lib.ctx.remove')}\t{strings.KEYS['lib_remove'][0]}")
@@ -3062,6 +3068,8 @@ class LibraryPage(QWidget):
                 kind = bookformats.sniff(path) or "epub"
             except OSError:
                 kind = "epub"                # start_conversion reports a missing file
+        if kind == "pdf":
+            return None
         title = str(e.get("title") or "") or os.path.splitext(os.path.basename(path))[0]
         return convert_dialog.start_conversion(self, path=path, title=title, source_format=kind,
                                                store=self._store, content_key=bid)

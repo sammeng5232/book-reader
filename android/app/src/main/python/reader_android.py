@@ -13,11 +13,81 @@ text so the Kotlin side never sees a Python object.
 from __future__ import annotations
 
 import json
+import hashlib
+import os
 import threading
 
 _book = None
 _book_path = ""
 _lock = threading.RLock()
+
+
+def formula_scales(book, path: str) -> dict[str, float]:
+    """Read-only bitmap series calibration, shared with the PDF glyph analyser.
+
+    Parse one spine document at a time, retain at most 96 successful samples per
+    series, and cache only the resulting em/pixel ratios. The original EPUB and
+    its text offsets are never rewritten. Explicit CSS remains the JS owner's
+    first choice; these ratios are for unsized formula bitmaps only.
+    """
+    import store
+    from latexexport import _FORMULA_HINT, _BLOCKS, _glyph_heights, _image_series, _local, parse_document
+
+    fingerprint = f"reader-formulas-v1|{os.path.abspath(path)}|{os.stat(path).st_size}|{os.stat(path).st_mtime_ns}"
+    cache = os.path.join(store.cache_dir(), "reader-formulas", hashlib.sha256(fingerprint.encode()).hexdigest() + ".json")
+    try:
+        with open(cache, encoding="utf8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
+    samples, hints, checked = {}, set(), set()
+    for item in book.spine:
+        doc = item.zip_name
+        if not doc or not doc.lower().endswith((".html", ".htm", ".xhtml", ".xml")):
+            continue
+        try:
+            root = parse_document(book.read_text(doc))
+        except Exception:
+            continue
+        for el in root.iter():
+            if _local(el) != "img":
+                continue
+            src = el.get("src") or ""
+            hint = bool(_FORMULA_HINT.search(src + " " + (el.get("class") or "")))
+            parent = el.getparent()
+            while parent is not None and _local(parent) not in _BLOCKS:
+                parent = parent.getparent()
+            if not hint and (parent is None or not "".join(parent.itertext()).strip()):
+                continue
+            try:
+                image, _ = book.resolve(src, doc)
+                series = _image_series(image)
+                group = samples.setdefault(series, {})
+                if image in checked or len(group) >= 96:
+                    continue
+                checked.add(image)
+                glyphs = _glyph_heights(book.read(image))
+            except Exception:
+                continue
+            if glyphs:
+                group[image] = sorted(glyphs)[::max(1, len(glyphs) // 12)]
+                if hint:
+                    hints.add(series)
+    scales = {}
+    for series, group in samples.items():
+        heights = sorted(h for sample in group.values() for h in sample)
+        if len(group) >= (8 if series in hints else 24) and len(heights) >= 40:
+            cap = heights[int(.8 * (len(heights) - 1))]
+            if 8 <= cap <= 64:
+                scales[series] = .70 / cap
+    try:
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        with open(cache + ".part", "w", encoding="utf8") as f:
+            json.dump(scales, f)
+        os.replace(cache + ".part", cache)
+    except OSError:
+        pass
+    return scales
 
 
 def _norm(settings: dict) -> dict:
@@ -78,6 +148,7 @@ def open_book(path: str) -> str:
             "fixedLayout": bool(book.is_fixed_layout),
             "pageDirection": getattr(book, "page_direction", "ltr"),
             "position": (state.get("position") or None),
+            "formulaScales": formula_scales(book, path),
         }, ensure_ascii=False)
 
 

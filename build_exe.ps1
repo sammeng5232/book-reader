@@ -43,6 +43,10 @@ param(
     [string] $AppName = 'Book Reader',
     [string] $BuildName = 'BookReader',
 
+    # Build beside an active installation without touching its directory.
+    [ValidatePattern('^$|^-[A-Za-z0-9][A-Za-z0-9_-]*$')]
+    [string] $OutputSuffix = '',
+
     [switch] $OneFile,
     [switch] $CleanCache,
     [switch] $NoPrune,
@@ -81,8 +85,8 @@ function TreeBytes ($path) {
 # 0. Paths
 # =============================================================================
 $Root     = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$DistDir  = Join-Path $Root 'dist'
-$WorkDir  = Join-Path $Root 'build'
+$DistDir  = Join-Path $Root ('dist' + $OutputSuffix)
+$WorkDir  = Join-Path $Root ('build' + $OutputSuffix)
 $AssetDir = Join-Path $Root 'assets'
 $IcoPath  = Join-Path $AssetDir 'app.ico'
 $IconGen  = Join-Path $Root 'tools\make_icon.py'
@@ -326,8 +330,17 @@ Write-Host ""
 
 $buildStart = Get-Date
 $ErrorActionPreference = 'Continue'    # PyInstaller logs to stderr; that is not an error
-& $Python @piArgs
-$rc = $LASTEXITCODE
+# Resolve dependencies from this Python and Windows, not unrelated tools on PATH.
+# Poppler/Conda ship an incompatible icuuc.dll with suffixed exports; Qt uses
+# Windows' native ICU. Bundling the former produces a QtCore import failure.
+$buildPathBefore = $env:PATH
+$env:PATH = @((Split-Path -Parent $Python), (Join-Path $env:SystemRoot 'System32'), $env:SystemRoot) -join ';'
+try {
+    & $Python @piArgs
+    $rc = $LASTEXITCODE
+} finally {
+    $env:PATH = $buildPathBefore
+}
 $ErrorActionPreference = 'Stop'
 $buildSecs = [math]::Round(((Get-Date) - $buildStart).TotalSeconds, 1)
 
@@ -375,6 +388,11 @@ else {
 # =============================================================================
 # 7. Prune Chromium payload that is never loaded at runtime
 # =============================================================================
+if (-not $OneFile) {
+    & $Python (Join-Path $Root 'tools\prune_incompatible_icu.py') $finalDir
+    if ($LASTEXITCODE -ne 0) { Fail 'The frozen Qt/ICU dependency check failed.' }
+}
+
 if (-not $NoPrune -and -not $OneFile) {
     Step "Pruning unused Chromium payload"
 

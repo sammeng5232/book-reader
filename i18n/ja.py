@@ -246,7 +246,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "この本は縦書きのため、スクロール表示で開いています",
     "status.link.missing": "リンク先がこの本の中にありません",
     "status.save_failed": "読書データを保存できなかったため、まもなく自動で再試行します",
-    "status.drop.unsupported": "開けるのは EPUB、MOBI、AZW3、DjVu ファイルだけです",
+    "status.drop.unsupported": "開けるのは EPUB、MOBI、AZW3、DjVu、PDF ファイルだけです",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "1分未満",
@@ -469,7 +469,7 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "本を開く",
-    "dlg.open.filter": "電子書籍 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
+    "dlg.open.filter": "電子書籍 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv *.pdf);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv);;PDF (*.pdf)",
     "dlg.all_files": "すべてのファイル (*)",
     "dlg.folder.title": "フォルダーの選択",
     "dlg.relocate.title": "『{title}』の場所を指定",
@@ -494,7 +494,7 @@ TABLE: dict[str, str] = {
     "err.access.title": "このファイルを読み込めません",
     "err.access.body": "ほかのプログラムが使用中か、読み取りが許可されていない可能性があります。",
     "err.unsupported.title": "この形式には対応していません",
-    "err.unsupported.body": "{app} で開けるのは EPUB、MOBI、AZW3、DjVu ファイルです。このファイルは対応していない形式（Kindle の KFX や Topaz など）です。",
+    "err.unsupported.body": "{app} で開けるのは EPUB、MOBI、AZW3、DjVu、PDF ファイルです。このファイルは対応していない形式（Kindle の KFX や Topaz など）です。",
     "err.unexpected.body": "開くときに予期しない問題が発生しました。原因は「技術的な詳細」で確認できます。",
     "err.section": "この部分は表示できません",
     "err.details": "技術的な詳細",
@@ -515,7 +515,7 @@ TABLE: dict[str, str] = {
 
     # ---- command line ----
     "cli.usage": "使い方：{exe} [電子書籍ファイル]",
-    "cli.description": "EPUB、MOBI、AZW3、DjVu の電子書籍を開きます。ファイルを指定しない場合は本棚を表示します。",
+    "cli.description": "EPUB、MOBI、AZW3、DjVu、PDF の電子書籍を開きます。ファイルを指定しない場合は本棚を表示します。",
     "cli.help": "このヘルプを表示して終了",
     "cli.not_found": "ファイルが見つかりません：{path}",
 
@@ -572,6 +572,11 @@ TABLE: dict[str, str] = {
     "tabs.new": "新しいタブ（書棚を開く）",
     "tabs.close": "タブを閉じる",
     "tabs.close_others": "他のタブを閉じる",
+    "tabs.move_to_new_window": "新しいウィンドウに移動",
+    "tabs.move_to_window": "タブをウィンドウに移動",
+    "status.pdf_page": "{pages} ページ中 {page} ページ",
+    "err.pdf_password.title": "この PDF にはパスワードが必要です",
+    "err.pdf_password.body": "ロック解除済みの PDF を開いてください。このリーダーはまだパスワード入力に対応していません。",
     "keys.lib_move": "選択を移動",
     "keys.lib_open": "選択した本を開く",
     "keys.lib_focus_search": "検索ボックスに移動",

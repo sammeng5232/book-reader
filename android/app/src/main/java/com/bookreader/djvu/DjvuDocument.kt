@@ -91,7 +91,10 @@ class DjvuDocument {
     private val pages = ArrayList<Component>()
     private val byId = HashMap<String, Component>()
     private val dicts = HashMap<String, JB2Dict>()
-    private var outlineJson = "[]"
+    var outline: List<DjvuOutlineItem> = emptyList()
+        private set
+    var outlineError: String? = null
+        private set
     private var truncated = false
     private var opened = false
 
@@ -124,6 +127,20 @@ class DjvuDocument {
         }
         for (c in components) if (c.kind == 1) pages.add(c)
         if (pages.isEmpty()) throw InvalidDataException("the document has no pages")
+        // NAVM links refer to the page directory. Resolve only after pages has
+        // been populated; resolving inside loadMultipage made every target -1.
+        root.find("NAVM")?.let { navm ->
+            try {
+                val ids = pages.map { it.id ?: "" }
+                val titles = pages.map { it.title ?: "" }
+                outline = DjvuOutline.parse(Bzz.decode(b, navm.dataOffset, navm.length)) {
+                    DjvuOutline.resolvePage(it, ids, titles)
+                }
+            } catch (e: Exception) {
+                outlineError = e.message ?: "Invalid DjVu outline"
+                outline = emptyList()
+            }
+        }
         opened = true
         return infoJson()
     }
@@ -134,7 +151,8 @@ class DjvuDocument {
         pages.clear()
         byId.clear()
         dicts.clear()
-        outlineJson = "[]"
+        outline = emptyList()
+        outlineError = null
         truncated = false
         opened = false
     }
@@ -197,14 +215,6 @@ class DjvuDocument {
             }
             add(c)
         }
-        val navm = root.find("NAVM")
-        if (navm != null) {
-            outlineJson = try {
-                parseOutline(Bzz.decode(b, navm.dataOffset, navm.length))
-            } catch (e: Exception) {
-                "[]"
-            }
-        }
     }
 
     private fun readZ(d: ByteArray, q: IntArray): String {
@@ -213,58 +223,6 @@ class DjvuDocument {
         val r = String(d, s, q[0] - s, Charsets.UTF_8)
         q[0]++
         return r
-    }
-
-    // NAVM: count, then pre-order records {nChildren, INT24 len, title, INT24 len, url}
-    private fun parseOutline(d: ByteArray): String {
-        if (d.size < 2) return "[]"
-        val count = ((d[0].toInt() and 0xff) shl 8) or (d[1].toInt() and 0xff)
-        val cur = Cursor(2, count)
-        val sb = StringBuilder()
-        sb.append('[')
-        var first = true
-        while (cur.remaining > 0 && cur.q < d.size) {
-            if (!first) sb.append(',')
-            first = false
-            outlineRecord(d, cur, sb)
-        }
-        sb.append(']')
-        return sb.toString()
-    }
-
-    private class Cursor(var q: Int, var remaining: Int)
-
-    private fun outlineRecord(d: ByteArray, cur: Cursor, sb: StringBuilder) {
-        val kids = d[cur.q++].toInt() and 0xff
-        val tl = ((d[cur.q].toInt() and 0xff) shl 16) or ((d[cur.q + 1].toInt() and 0xff) shl 8) or
-            (d[cur.q + 2].toInt() and 0xff)
-        cur.q += 3
-        val title = String(d, cur.q, minOf(tl, d.size - cur.q), Charsets.UTF_8)
-        cur.q += tl
-        val ul = ((d[cur.q].toInt() and 0xff) shl 16) or ((d[cur.q + 1].toInt() and 0xff) shl 8) or
-            (d[cur.q + 2].toInt() and 0xff)
-        cur.q += 3
-        val url = String(d, cur.q, minOf(ul, d.size - cur.q), Charsets.UTF_8)
-        cur.q += ul
-        cur.remaining--
-        sb.append("{\"t\":").append(Json.str(title)).append(",\"p\":").append(resolvePage(url)).append(",\"c\":[")
-        var i = 0
-        while (i < kids && cur.remaining > 0 && cur.q < d.size) {
-            if (i > 0) sb.append(',')
-            outlineRecord(d, cur, sb)
-            i++
-        }
-        sb.append("]}")
-    }
-
-    /** "#12" (page number), "#p0012.djvu" (component id or title) -> 0-based page, or -1 */
-    private fun resolvePage(url: String): Int {
-        if (url.isEmpty() || url[0] != '#') return -1
-        val key = url.substring(1)
-        for (i in pages.indices) if (pages[i].id == key || pages[i].title == key) return i
-        val n = key.trim().toIntOrNull()
-        if (n != null && n >= 1 && n <= pages.size) return n - 1
-        return -1
     }
 
     private fun info(page: Int): PageInfo {
@@ -798,7 +756,7 @@ class DjvuDocument {
                 .append(",\"id\":").append(Json.str(pages[i].id ?: ""))
                 .append(",\"title\":").append(Json.str(pages[i].title ?: "")).append('}')
         }
-        sb.append("],\"outline\":").append(outlineJson)
+        sb.append("],\"outline\":").append(DjvuOutline.json(outline))
             .append(",\"truncated\":").append(if (truncated) "true" else "false").append('}')
         return sb.toString()
     }

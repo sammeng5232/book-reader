@@ -21,3 +21,8 @@ desktop.ini
 assets/djvutool.exe
 djvutool/*.exe
 *.building.exe
+
+# Parallel local package builds (any dist-*/build-* variant: -font-update,
+# -tabs-final, -codex, ...). Never commit PyInstaller/Gradle build output.
+build-*/
+dist-*/

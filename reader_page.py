@@ -1119,7 +1119,8 @@ class ChromeToolbar(QFrame):
             if kid and KEYS.get(kid):
                 text += "\t" + KEYS[kid][0]
             self.actions[name].setText(text)
-        self.actions["convert"].setEnabled(bool(self._page.source_format()))
+        self.actions["convert"].setEnabled(self._page.source_format() not in ("", "pdf"))
+        self.actions["convert"].setVisible(self._page.source_format() != "pdf")
         self._fit_title()
 
     def apply_theme(self, t: theme_mod.Theme) -> None:
@@ -2528,6 +2529,7 @@ class ErrorCard(QFrame):
         "access": ("err.access.title", "err.access.body", ("reveal", "remove", "close"), True),
         "unsupported": ("err.unsupported.title", "err.unsupported.body",
                         ("reveal", "remove", "close"), True),
+        "password": ("err.pdf_password.title", "err.pdf_password.body", ("reveal", "close"), False),
     }
     BUTTON_KEYS = {"reveal": "err.btn.reveal", "relocate": "err.btn.relocate",
                    "remove": "err.btn.remove", "close": "err.btn.close"}
@@ -3707,7 +3709,8 @@ class ReaderPage(QWidget):
         except EpubError as exc:
             kind = {"drm": "drm", "not_epub": "structure", "no_container": "structure",
                     "bad_opf": "structure_opf", "too_large": "toolarge",
-                    "corrupt": "corrupt", "unsupported": "unsupported"}.get(exc.kind, "unexpected")
+                    "corrupt": "corrupt", "unsupported": "unsupported",
+                    "password": "password"}.get(exc.kind, "unexpected")
             spec = self._spec(kind, path, entry, exc)
             spec["drm_scheme"] = exc.drm_scheme
             spec["book_id"] = (entry or {}).get("id") or bid
@@ -3817,7 +3820,9 @@ class ReaderPage(QWidget):
             "id": bid, "path": path, "size": st.st_size, "mtime_ns": st.st_mtime_ns,
             "title": md.get("title") or "", "authors": list(md.get("authors") or []),
             "publisher": md.get("publisher") or "", "pubdate": md.get("date") or "",
-            "language": md.get("language") or "", "epub_version": getattr(book, "version", ""),
+            "language": md.get("language") or "",
+            "format": {"djvu": "DjVu"}.get(self.source_format(), self.source_format().upper()),
+            "epub_version": getattr(book, "version", "") if self.source_format() == "epub" else "",
             "layout": "fixed" if book.is_fixed_layout else "reflowable",
             "toc_source": "spine" if book.toc_is_synthetic else "toc",
             "spine_count": len(book.spine), "units_total": self._total_units,
@@ -4155,6 +4160,10 @@ class ReaderPage(QWidget):
     def _book_fraction(self) -> float:
         if self._book is None or not self._state:
             return 0.0
+        if self.source_format() == "pdf":
+            # Scanned PDFs can have no text at all: their progress follows
+            # physical pages, rather than the EPUB character-offset model.
+            return _clamp((self._cur_spine + 1) / max(1, len(self._book.spine)), 0.0, 1.0)
         st = self._state
         i = self._cur_spine
         if self._linear and i == self._linear[-1] and st.get("pages") \
@@ -4168,6 +4177,14 @@ class ReaderPage(QWidget):
     # ======================================================================
     def _capture_and_save(self, force: bool = False) -> None:
         if self._book is None:
+            return
+        if self.source_format() == "pdf":
+            # A scanned page has no DOM text locator. Its physical page number
+            # is sufficient and must still persist and support bookmarks.
+            loc = self._current_locator()
+            if loc is not None:
+                self._last_loc, self._last_loc_spine = loc, self._cur_spine
+                self._save_position(loc, force)
             return
         if not self._page_ready:
             if force:
@@ -4195,6 +4212,8 @@ class ReaderPage(QWidget):
         i = self._cur_spine
         if book is None or not (0 <= i < len(book.spine)):
             return None
+        if self.source_format() == "pdf":
+            return {"gpos": 0, "chapterPercent": 0, "percent": self._book_fraction()}
         g = self._state.get("gpos") if self._state else None
         if self._last_loc and self._last_loc_spine == i and (g is None or self._last_loc.get("gpos") == g):
             return dict(self._last_loc)
@@ -4278,6 +4297,8 @@ class ReaderPage(QWidget):
     def _right_text(self) -> str:
         if self._book is None:
             return ""
+        if self.source_format() == "pdf":
+            return ""  # PDF pages may be scans; text-based reading-time estimates are misleading.
         mode = self.statusbar.mode
         if mode == "read":
             minutes = (self._base_seconds + self._tracker.total_seconds) / 60.0
@@ -4302,7 +4323,9 @@ class ReaderPage(QWidget):
             self.statusbar.set_cells(chapter, None, None)
             return
         frac = self._book_fraction()
-        self.statusbar.set_cells(chapter, lambda: S("status.percent", p=_percent_int(frac)),
+        centre = (lambda: S("status.pdf_page", page=self._cur_spine + 1, pages=len(self._book.spine))) \
+            if self.source_format() == "pdf" else (lambda: S("status.percent", p=_percent_int(frac)))
+        self.statusbar.set_cells(chapter, centre,
                                  self._right_text)
 
     def _on_status_mode(self, mode: str) -> None:
@@ -4426,6 +4449,12 @@ class ReaderPage(QWidget):
 
     def goto_percent(self, percent: float) -> None:
         """Jump to *percent* (0-100) of the whole book, by character offset."""
+        if self._book is not None and self.source_format() == "pdf":
+            import math
+            count = len(self._book.spine)
+            index = max(0, min(count - 1, math.ceil(_clamp(float(percent), 0, 100) * count / 100) - 1))
+            self._goto(index, at="start", focus=True)
+            return
         if self._book is None or not self._total_chars:
             return
         target = _clamp(float(percent), 0.0, 100.0) / 100.0 * self._total_chars
@@ -4896,7 +4925,10 @@ class ReaderPage(QWidget):
             self._refresh_bookmarks()
             self.show_message(lambda: S("status.bookmark.added"))
 
-        self.host.call_reader("capture", callback=done)
+        if self.source_format() == "pdf":
+            done(self._current_locator())
+        else:
+            self.host.call_reader("capture", callback=done)
 
     def remove_bookmark(self, bookmark_id: str) -> None:
         """Remove one bookmark with a 3 s undo in the status bar."""
@@ -5767,10 +5799,13 @@ class ReaderPage(QWidget):
             (lambda: S("info.pubdate"), lambda: md.get("date") or ""),
             (lambda: S("info.language"), lambda: md.get("language") or ""),
             (lambda: S("info.identifier"), lambda: md.get("identifier") or ""),
-            (lambda: S("info.epub_version"), lambda: getattr(book, "version", "") or ""),
+            (lambda: S("info.format"), lambda: self.source_format().upper()),
+            (lambda: S("info.epub_version"),
+             lambda: (getattr(book, "version", "") or "") if self.source_format() == "epub" else ""),
             (lambda: S("info.layout"),
              lambda: S("info.layout.fixed") if book.is_fixed_layout else S("info.layout.reflowable")),
-            (lambda: S("info.chapters"), lambda: str(len(book.spine))),
+            (lambda: S("info.pages" if self.source_format() == "pdf" else "info.chapters"),
+             lambda: str(len(book.spine))),
             (lambda: S("info.units"), lambda: S("info.units.value", n=f"{self._total_units:,}")),
             (lambda: S("info.size"), lambda: data_size() if size else ""),
             (lambda: S("info.path"), lambda: self._path),
@@ -5841,7 +5876,7 @@ class ReaderPage(QWidget):
 
     def convert_book(self) -> Any:
         """转换为 LaTeX 和 PDF… (DjVu: 转换为 PDF…) for the open book.  Returns the running job."""
-        if self._book is None:
+        if self._book is None or self.source_format() == "pdf":
             return None
         import convert_dialog
         return convert_dialog.start_conversion(self, path=self._path, title=self._book_title(),

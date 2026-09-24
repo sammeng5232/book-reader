@@ -96,3 +96,37 @@ in 6.3 s; 紅樓夢 (AZW3) **1,149 pages in 3.5 minutes**, output matching the d
   build then fails with "JAVA_HOME is set to an invalid directory".
 - Pull files with `adb pull` or `adb exec-out`; `adb shell cat` mangles binaries.
 - Chaquopy needs AGP ≤ 9.2 and a host Python matching the target version (3.13).
+
+
+## Offline TeX regression checks
+
+`native/verify-bundle.py app/src/main/assets/texbundle` checks every shipped font
+metric against `pdftex.map`, including the PFB/encoding files needed when it is
+actually rendered. A format or a simple document can load a `.tfm` without fetching
+its corresponding `.pfb`; math at a different size then fails offline. The
+`math-fonts.tex` probe renders those fonts so bundle creation includes them.
+
+`native/make-bundle.sh` stops on a failed probe and validates the staged bundle
+before replacing the installed assets. If completing a locally cached bundle,
+`TEX_FONT_SOURCE=/path/to/texmf/fonts` lets the validator copy missing mapped fonts
+from an installed TeX tree. The content fingerprint then invalidates both the
+unpacked device bundle and its compiled format on update.
+
+Run the Python bridge regression checks with:
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = "1"
+python -m unittest discover -s android/tests -p "test_*.py" -v
+```
+
+For a device check, `autorun typeset` still runs the bundled sample. Add
+`--es file /storage/emulated/0/Android/data/com.bookreader/files/probes/math.tex`
+to compile a staged TeX document and its relative images directly; the result is
+written beside that test source and logged under `BookReader`. `autorun convert`
+continues to test the full ebook-to-PDF pipeline.
+
+Conversion logs the engine result before saving. Saving reports its own file
+count, publishes PDF and TeX first, and chooses a new output directory once per
+export (for example `source (2)`) so prior exports remain intact and the original
+filenames and relative image links are preserved. Failed publications keep their
+private source copies instead of silently discarding them.

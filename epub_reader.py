@@ -42,8 +42,9 @@ import sys
 import threading
 import time
 import traceback
+import uuid
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Sequence
 
 import webhost  # registers epub:// at import time; must precede QApplication
@@ -53,6 +54,7 @@ from PySide6.QtCore import (
     QEvent,
     QLibraryInfo,
     QLocale,
+    QMimeData,
     QObject,
     QPoint,
     QRect,
@@ -69,7 +71,9 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
+    QCursor,
     QDesktopServices,
+    QDrag,
     QFont,
     QGuiApplication,
     QIcon,
@@ -1007,7 +1011,7 @@ WINDOWS = _WindowSet()
 # the tab strip
 # ==========================================================================
 
-@dataclass
+@dataclass(eq=False)
 class _Tab:
     """One tab: the shelf, or one open book (its reader is built lazily).
 
@@ -1021,7 +1025,8 @@ class _Tab:
     bid: str = ""                              # book id (content hash)
     path: str = ""                             # the book file
     reader: "ReaderPage | None" = None
-    title: str = ""                            # tab label until/refined by titleChanged
+    title: str = ""                            # metadata title used by the OS window
+    token: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     @property
     def is_library(self) -> bool:
@@ -1029,9 +1034,16 @@ class _Tab:
 
 
 class TabBar(QTabBar):
-    """Browser-style tabs: closable, movable, middle-click closes, context menu."""
+    """Browser-style tabs: closable, movable, middle-click closes, context menu.
+
+    Dragging a tab to another window's tab strip moves it there (like a browser);
+    dropping on empty space in the same window just reorders.
+    """
 
     closeOthersRequested = Signal(int)
+    moveTabToWindowRequested = Signal(int, object, int)  # index, window, insertion slot
+    detachTabRequested = Signal(int, object)             # index, optional screen point
+    MIME_TYPE = "application/x-bookreader-tab"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1044,6 +1056,10 @@ class TabBar(QTabBar):
         self.setSelectionBehaviorOnRemove(QTabBar.SelectionBehavior.SelectLeftTab)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
+        self.setAcceptDrops(True)
+        self._drag_start: QPoint | None = None
+        self._drag_token: str | None = None
+        self._drag_cancelled = False
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -1051,18 +1067,199 @@ class TabBar(QTabBar):
             if i >= 0:
                 self.tabCloseRequested.emit(i)
                 return
+        if event.button() == Qt.MouseButton.LeftButton:
+            i = self.tabAt(event.position().toPoint())
+            if i >= 0:
+                self._drag_start = event.position().toPoint()
+                self._drag_token = self.tabData(i)
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.buttons() & Qt.MouseButton.LeftButton \
+                and self._drag_start is not None and self._drag_token is not None \
+                and (event.position().toPoint() - self._drag_start).manhattanLength() \
+                >= QApplication.startDragDistance() \
+                and not self.rect().adjusted(0, -8, 0, 8).contains(event.position().toPoint()):
+            # Let QTabBar do its normal live reordering while the pointer stays
+            # in the strip. Only take over when the tab leaves it. Native moves
+            # can change the index, so resolve the original tab by identity.
+            i = self._index_for_token(self._drag_token)
+            self._drag_start = None
+            self._drag_token = None
+            release = QMouseEvent(QEvent.Type.MouseButtonRelease, event.position(),
+                                  event.globalPosition(), Qt.MouseButton.LeftButton,
+                                  Qt.MouseButton.NoButton, event.modifiers())
+            super().mouseReleaseEvent(release)
+            if i >= 0:
+                self._begin_drag(i)
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.MiddleButton:
+            # We closed on press. Qt 6 also closes middle-clicked tabs on
+            # release, which would otherwise close the neighbour a second time.
+            event.accept()
+            return
+        self._drag_start = None
+        self._drag_token = None
+        super().mouseReleaseEvent(event)
+
+    def _index_for_token(self, token: str | None) -> int:
+        if not token:
+            return -1
+        return next((i for i in range(self.count()) if self.tabData(i) == token), -1)
+
+    def _begin_drag(self, index: int) -> None:
+        """Move the live tab, retaining its identity throughout the nested drag loop."""
+        owner = self.window()  # retain a source emptied/closed inside QDrag.exec()
+        token = self.tabData(index)
+        if not token:
+            return
+        # Windows can deliver a queued mouse-move after the real button-up
+        # (fast dragging or input automation). Starting OLE drag then leaves a
+        # floating tab waiting for a release which has already happened.
+        if sys.platform == "win32" and not self._left_button_down():
+            self._drop_at_position(token, QCursor.pos())
+            return
+        mime = QMimeData()
+        mime.setData(self.MIME_TYPE, token.encode("ascii"))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab(self.tabRect(index)))
+        drag.setHotSpot(QPoint(8, 8))
+        app = QApplication.instance()
+        self._drag_cancelled = False
+        if app is not None:
+            app.installEventFilter(self)
+        try:
+            action = drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            if app is not None:
+                app.removeEventFilter(self)
+            drag.deleteLater()
+        self._finish_drag(token, action, QCursor.pos())
+        del owner
+
+    @staticmethod
+    def _left_button_down() -> bool:
+        if sys.platform == "win32":
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000)
+        return bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
+
+    def _drop_at_position(self, token: str, position: QPoint) -> None:
+        """Complete an already released drag without entering the native loop."""
+        i = self._index_for_token(token)
+        if i < 0:
+            return
+        target = QApplication.widgetAt(position)
+        while target is not None and not isinstance(target, TabBar):
+            target = target.parentWidget()
+        if isinstance(target, TabBar) and isinstance(target.window(), MainWindow):
+            at = target._insertion_slot(target.mapFromGlobal(position))
+            if target is self:
+                self.moveTab(i, at - (i < at))
+            else:
+                self.moveTabToWindowRequested.emit(i, target.window(), at)
+        else:
+            self.detachTabRequested.emit(i, position)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            self._drag_cancelled = True
+        return super().eventFilter(obj, event)
+
+    def _finish_drag(self, token: str, action: Qt.DropAction, position: QPoint) -> None:
+        # IgnoreAction also means Escape/cancel. Only a released mouse outside
+        # our strip is a tear-off; never turn a cancelled drag into a new window.
+        if action != Qt.DropAction.IgnoreAction or self._drag_cancelled \
+                or self._left_button_down():
+            return
+        i = self._index_for_token(token)
+        if i >= 0 and not self.rect().contains(self.mapFromGlobal(position)):
+            self.detachTabRequested.emit(i, position)
+
+    def _drag_source(self, event: Any) -> tuple["TabBar", int] | None:
+        if not event.mimeData().hasFormat(self.MIME_TYPE):
+            return None
+        source = event.source()
+        if not isinstance(source, TabBar):
+            return None
+        try:
+            token = bytes(event.mimeData().data(self.MIME_TYPE)).decode("ascii")
+        except UnicodeDecodeError:
+            return None
+        i = source._index_for_token(token)
+        if i < 0 or not isinstance(source.window(), MainWindow) \
+                or not isinstance(self.window(), MainWindow) \
+                or source.window()._shut or self.window()._shut:
+            return None
+        return source, i
+
+    def _insertion_slot(self, pos: QPoint) -> int:
+        """The gap before/after a tab, including blank space after the last tab."""
+        rtl = self.layoutDirection() == Qt.LayoutDirection.RightToLeft
+        for i in range(self.count()):
+            centre = self.tabRect(i).center().x()
+            if (rtl and pos.x() > centre) or (not rtl and pos.x() < centre):
+                return i
+        return self.count()
+
+    def dragEnterEvent(self, event: Any) -> None:  # noqa: N802
+        if self._drag_source(event) is not None:
+            event.setDropAction(Qt.DropAction.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event: Any) -> None:  # noqa: N802
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event: Any) -> None:  # noqa: N802
+        source = self._drag_source(event)
+        if source is None:
+            event.ignore()
+            return
+        src_bar, src_index = source
+        at = self._insertion_slot(event.position().toPoint())
+        if src_bar is self:
+            # A drag which left the strip can re-enter it. Qt's native movable
+            # logic does not handle QDrag drops; reorder explicitly in this case.
+            self.moveTab(src_index, at - (src_index < at))
+        else:
+            src_bar.moveTabToWindowRequested.emit(src_index, self.window(), at)
+        event.setDropAction(Qt.DropAction.MoveAction)
+        event.accept()
 
     def _menu(self, pos: QPoint) -> None:
         i = self.tabAt(pos)
         if i < 0:
             return
+        token = self.tabData(i)
         menu = QMenu(self)
         menu.setObjectName("tabbar-menu")
-        menu.addAction(S("tabs.close"), lambda: self.tabCloseRequested.emit(i))
+        menu.addAction(S("tabs.close"),
+                       lambda: self.tabCloseRequested.emit(self._index_for_token(token)))
         menu.addSeparator()
-        menu.addAction(S("tabs.close_others"), lambda: self.closeOthersRequested.emit(i))
+        menu.addAction(S("tabs.close_others"),
+                       lambda: self.closeOthersRequested.emit(self._index_for_token(token)))
+        menu.addSeparator()
+        others = [w for w in WINDOWS.live() if w is not self.window()]
+        if others:
+            windows_menu = menu.addMenu(S("tabs.move_to_window"))
+            windows_menu.setObjectName("tabbar-window-menu")
+            for win in others:
+                windows_menu.addAction(f"{win._slot + 1} · {win.windowTitle()}",
+                                       lambda _checked=False, w=win: self._move_to_menu_window(token, w))
+        menu.addAction(S("tabs.move_to_new_window"),
+                       lambda: self.detachTabRequested.emit(self._index_for_token(token), None))
         menu.exec(self.mapToGlobal(pos))
+        menu.deleteLater()
+
+    def _move_to_menu_window(self, token: str, window: "MainWindow") -> None:
+        if not window._shut:
+            self.moveTabToWindowRequested.emit(self._index_for_token(token), window,
+                                               window.tabbar.count())
 
 
 # ==========================================================================
@@ -1101,7 +1298,7 @@ class MainWindow(QMainWindow):
         strings.set_language(self.store.get("ui.language", "auto"))
         self._qt_tr = QtTranslations(app)
         self.theme_controller = theme_controller or theme_mod.ThemeController(
-            app, self.store.get("reader.theme", "system"), self)
+            app, self.store.get("reader.theme", "system"), app)
 
         self.setObjectName("er-main-window")
         self.setWindowIcon(QIcon(webhost.asset_path("app.ico")))
@@ -1145,7 +1342,7 @@ class MainWindow(QMainWindow):
         lib = self.library
         lib.openBook.connect(self.open_path)
         self.theme_controller.themeChanged.connect(lib.apply_theme)
-        self.theme_controller.themeChanged.connect(lambda _t: self.library_cheatsheet.update())
+        self.theme_controller.themeChanged.connect(self._refresh_library_cheatsheet)
         self._build_library_menu()
         strings.language_changed.subscribe(self.retranslate_ui)
 
@@ -1177,6 +1374,8 @@ class MainWindow(QMainWindow):
         self.tabbar.tabCloseRequested.connect(self.close_tab)
         self.tabbar.closeOthersRequested.connect(self._close_other_tabs)
         self.tabbar.tabMoved.connect(self._on_tab_moved)
+        self.tabbar.moveTabToWindowRequested.connect(self._move_tab_to_window)
+        self.tabbar.detachTabRequested.connect(self._detach_tab_to_new_window)
         # One reading surface exists from the start (as it always did), so the
         # window is instantly ready for a book and `win.reader` is never None.
         self._pool.append(self._make_reader())
@@ -1257,7 +1456,9 @@ class MainWindow(QMainWindow):
     def _tab_label(self, tab: _Tab) -> str:
         if tab.is_library:
             return S("title.library")
-        return tab.title or os.path.splitext(os.path.basename(tab.path or ""))[0] or "…"
+        # Tabs identify the original user file, including extension. Metadata
+        # remains the window title and must never replace the filename here.
+        return os.path.basename(tab.path) if tab.path else "…"
 
     def _add_tab(self, tab: _Tab, at: int | None = None) -> int:
         """Append (or insert) a tab record and its strip entry; returns the index."""
@@ -1267,6 +1468,7 @@ class MainWindow(QMainWindow):
         self.tabs.insert(at, tab)
         self.tabbar.blockSignals(True)
         self.tabbar.insertTab(at, self._tab_label(tab))
+        self.tabbar.setTabData(at, tab.token)
         self.tabbar.blockSignals(False)
         self.tabbar.setTabToolTip(at, self._tab_label(tab))
         self._style_tab_buttons(at)
@@ -1349,25 +1551,46 @@ class MainWindow(QMainWindow):
         # a file dropped on the book goes to the window (and opens), never into Chromium
         r.view.setAcceptDrops(False)
         r.handle_letter_keys = False          # j/k/n/N and / come to the router
-        r.titleChanged.connect(lambda t, r=r: self._on_reader_title(r, t))
-        r.backToLibrary.connect(lambda r=r: self._reader_wants_library(r))
-        r.bookOpened.connect(lambda bid, r=r: self._on_book_opened(r, bid))
-        r.bookRemoved.connect(lambda _bid: self.library.refresh())
-        r.openBookRequested.connect(self.open_dialog)
-        r.aboutRequested.connect(self.show_about)
-        r.quitRequested.connect(self.request_quit)
-        r.associateRequested.connect(self.associate_file_type)
-        r.zenChanged.connect(lambda _on, r=r: self._on_zen(_on))
-        r.pageKeyUnhandled.connect(self.keys.dispatch_page_key)
+        self._bind_reader(r)
         return r
+
+    def _bind_reader(self, r: "ReaderPage") -> None:
+        """Rebind only shell signals when a live reader changes windows.
+
+        Reparenting the widget alone leaves Python closures and bound methods
+        pointing at the source window. Keep the precise connections so reader
+        internals (bookmarks, positions, host and workers) remain untouched.
+        """
+        for signal, callback in getattr(r, "_window_connections", []):
+            signal.disconnect(callback)
+        connections = [
+            (r.titleChanged, lambda title: self._on_reader_title(r, title)),
+            (r.backToLibrary, lambda: self._reader_wants_library(r)),
+            (r.bookOpened, lambda bid: self._on_book_opened(r, bid)),
+            (r.bookRemoved, lambda _bid: self.library.refresh()),
+            (r.openBookRequested, self.open_dialog),
+            (r.aboutRequested, self.show_about),
+            (r.quitRequested, self.request_quit),
+            (r.associateRequested, self.associate_file_type),
+            (r.zenChanged, self._on_zen),
+            (r.pageKeyUnhandled, self.keys.dispatch_page_key),
+        ]
+        for signal, callback in connections:
+            signal.connect(callback)
+        r._window_connections = connections
 
     def _rebuild_keys(self) -> None:
         r = self.active_reader
         self.keys.set_bindings(build_bindings(r.action_map() if r is not None else {}, self._shell))
 
+    def _refresh_library_cheatsheet(self, _theme: theme_mod.Theme) -> None:
+        self.library_cheatsheet.update()
+
     def new_library_tab(self) -> None:
         """Ctrl+T / the "+" button: a fresh tab showing the shelf."""
-        self.show_library()
+        self._session_ready = True
+        self._activate_tab(self._add_tab(_Tab(kind="library"),
+                                        at=self.tabbar.currentIndex() + 1))
 
     def next_tab(self) -> None:
         """Ctrl+Tab."""
@@ -1379,7 +1602,7 @@ class MainWindow(QMainWindow):
         if len(self.tabs) > 1:
             self._activate_tab((self.tabbar.currentIndex() - 1) % len(self.tabs))
 
-    def new_window(self) -> None:
+    def new_window(self) -> "MainWindow":
         """Ctrl+N: another window with its own tabs, the shelf first (like a browser)."""
         w = MainWindow(store=self.store, theme_controller=self.theme_controller, debug=self._debug)
         w._session_ready = True          # a fresh window has nothing to restore
@@ -1389,6 +1612,66 @@ class MainWindow(QMainWindow):
         w.show()
         w.raise_()
         w.activateWindow()
+        self._save_session()
+        return w
+
+    def _detach_tab_to_new_window(self, i: int, position: QPoint | None = None) -> None:
+        """Move tab *i* into a brand-new window (browser-style tear-off)."""
+        if not (0 <= i < len(self.tabs)):
+            return
+        # Show the new window before closing an emptied source, so moving its
+        # last tab never quits the application. Remove the constructor's shelf.
+        w = MainWindow(store=self.store, theme_controller=self.theme_controller, debug=self._debug)
+        w._session_ready = True
+        g = self.normalGeometry() if (self.isMaximized() or self.isFullScreen()) else self.geometry()
+        w.setGeometry(g.translated(44, 44))
+        if position is not None:
+            point = position - QPoint(36, 12)
+            screen = QGuiApplication.screenAt(position) or self.screen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                point.setX(max(available.left(), min(point.x(), available.right() - w.width() + 1)))
+                point.setY(max(available.top(), min(point.y(), available.bottom() - w.height() + 1)))
+            w.move(point)
+        w._remove_tab(w.tabs[0])
+        w._active_tab = None
+        w.show()
+        self._move_tab_to_window(i, w, 0)
+
+    def _move_tab_to_window(self, i: int, dst: "MainWindow", at: int | None = None) -> None:
+        """Move tab *i* from this window into *dst* (drag-and-drop between windows).
+
+        The reader surface travels with the tab: no re-render, no lost scroll
+        position. Closing an emptied source must not close the moved reader,
+        shared store, or the single-instance server used by the other windows.
+        """
+        if not (0 <= i < len(self.tabs)) or dst is self or self._shut or dst._shut:
+            return
+        tab = self.tabs[i]
+        was_active = tab is self._active_tab
+        # remove from this window without disposing the reader
+        self._remove_tab(tab)
+        if self._active_tab is tab:
+            self._active_tab = None
+        # hand the reader over: remove from this stack, add to the destination's
+        r = tab.reader
+        if r is not None:
+            self.stack.removeWidget(r)
+            dst.stack.addWidget(r)
+            dst._bind_reader(r)
+        # Honor the actual drop gap, or append after the active tab for callers
+        # which do not specify a position (e.g. a future window-selection menu).
+        at = dst._add_tab(tab, at=dst.tabbar.currentIndex() + 1 if at is None else at)
+        if self.tabs and was_active:
+            self._activate_tab(min(i, len(self.tabs) - 1))
+        else:
+            self._rebuild_keys()
+        # activate the moved tab in the destination
+        dst._activate_tab(at)
+        dst.bring_to_front()
+        if not self.tabs:
+            self.close()
+        dst._save_session()
         self._save_session()
 
     def close_tab(self, i: int) -> None:
@@ -1484,6 +1767,9 @@ class MainWindow(QMainWindow):
             "library": any(t.is_library for t in self.tabs),
             "active": ("library" if (active is not None and active.is_library)
                        else (active.bid if active is not None else "")),
+            "items": [{"kind": "library"} if t.is_library else {"kind": "book", "bid": t.bid}
+                      for t in self.tabs],
+            "active_index": self._index_of(active) if active is not None else 0,
         }
 
     @staticmethod
@@ -1574,14 +1860,8 @@ class MainWindow(QMainWindow):
         self.show_library()
 
     def close_book_or_window(self) -> None:
-        """Ctrl+W: close the book's tab; on the shelf tab, close the window."""
-        if self.is_reading():
-            r = self.active_reader
-            if r is not None:
-                r.close_and_return()
-                self.library.notify(lambda: S("status.back_to_library"), timeout_ms=BACK_TO_LIBRARY_NOTE_MS)
-                return
-        self.close()
+        """Ctrl+W closes the active tab; only the last tab closes the window."""
+        self.close_tab(self.tabbar.currentIndex())
 
     def open_dialog(self) -> None:
         """Ctrl+O: the file dialog; the chosen book is shelved, then opened."""
@@ -1658,6 +1938,34 @@ class MainWindow(QMainWindow):
         if not restore:
             self._activate_tab(0)
             return
+        # Version 2 preserves each shelf tab, its place among books, and the
+        # selected instance. The historical fields still load older sessions.
+        items = session.get("items")
+        if isinstance(items, list):
+            for t in list(self.tabs):
+                self._dispose_tab(t)
+            active_index = session.get("active_index", 0)
+            start = 0
+            for original_index, item in enumerate(items):
+                if not isinstance(item, dict):
+                    continue
+                if item.get("kind") == "library":
+                    t = _Tab(kind="library")
+                else:
+                    bid = str(item.get("bid") or "")
+                    entry = self.store.library_get(bid) or {}
+                    path = str(entry.get("path") or "")
+                    if not path or not os.path.isfile(path):
+                        continue
+                    t = _Tab(kind="book", bid=bid, path=path,
+                             title=str(entry.get("title") or ""))
+                at = self._add_tab(t)
+                if original_index == active_index:
+                    start = at
+            if not self.tabs:
+                self._add_tab(_Tab(kind="library"))
+            self._activate_tab(start)
+            return
         bids = [str(b) for b in (session.get("tabs") or []) if str(b)]
         tabs: list[_Tab] = []
         for bid in bids:
@@ -1689,6 +1997,15 @@ class MainWindow(QMainWindow):
         tab = self._tab_of_reader(r)
         if tab is not None:
             tab.bid = bid
+            # ReaderPage can reopen a relocated file directly, bypassing
+            # MainWindow.open_path. Follow its authoritative source path so the
+            # tab, duplicate detection and restored session all name that file.
+            if r.book is not None:
+                tab.path = os.path.abspath(os.fspath(r.book.path))
+            i = self._index_of(tab)
+            if i >= 0:
+                self.tabbar.setTabText(i, self._tab_label(tab))
+                self.tabbar.setTabToolTip(i, self._tab_label(tab))
         self.store.set("window.last_route", {"kind": "book", "book_id": bid})
         self._save_session()
         # Heal a shelf title that predates a converter fix (DjVu titles used to
@@ -1865,7 +2182,7 @@ class MainWindow(QMainWindow):
             target.open_path(arg.strip(), new_tab=True)
         else:
             # a bare second launch: a fresh tab on the shelf, like a browser
-            target.show_library()
+            target.new_library_tab()
         target.bring_to_front()
 
     def bring_to_front(self) -> None:
@@ -2034,6 +2351,9 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.removeEventFilter(self.keys)
+            app.aboutToQuit.disconnect(self.shutdown)
+        strings.language_changed.unsubscribe(self.retranslate_ui)
+        self.theme_controller.themeChanged.disconnect(self._refresh_library_cheatsheet)
         readers = [t.reader for t in self.tabs if t.reader is not None] + list(self._pool)
         seen: set[int] = set()
         for r in readers:
@@ -2049,12 +2369,22 @@ class MainWindow(QMainWindow):
             self.library.shutdown()
         except Exception:  # noqa: BLE001
             log.exception("library shutdown failed")
+        remaining = [w for w in WINDOWS.live() if w.store is self.store]
         if self.instance is not None:
-            self.instance.close()
+            self.instance.messageReceived.disconnect(self.handle_instance_message)
+            if remaining:
+                remaining[0].attach_instance(self.instance)
+            else:
+                self.instance.close()
+            self.instance = None
         ok = self.store.flush()
         log.info("shutdown: store flushed=%s", ok)
         if self._own_store:
-            self.store.close()
+            if remaining:
+                remaining[0]._own_store = True
+                self._own_store = False
+            else:
+                self.store.close()
 
 
 # ==========================================================================
@@ -2204,9 +2534,11 @@ def main(argv: Sequence[str] | None = None, *,
     if path:
         win.open_path(path)
     else:
-        win.restore_session()
         # a multi-window session: every window after the first is restored here
+        # Snapshot before activating a tab: activation saves the currently live
+        # windows and would otherwise erase windows not yet constructed.
         slices = MainWindow._session_slices(store.get("window.session") or {})
+        win.restore_session(slices[0] if slices else None)
         for sl in slices[1:]:
             extra_win: MainWindow | None = None
             try:

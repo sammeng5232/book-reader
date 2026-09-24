@@ -175,6 +175,16 @@ intended formula-to-text proportion at every font size. Regenerating real LaTeX
 from these images is not possible (no MathML, `alt="image"` only); when an EPUB
 *does* carry MathML with a TeX annotation, `el_math` already emits `\(...\)`.
 
+### 4.2c Browser-style tabs and multiple windows (fixed 2026-09-23)
+
+The app now has browser-style tabs (Ctrl+T / Ctrl+Tab / Ctrl+Shift+Tab) and
+multiple windows (Ctrl+N). Tabs can be moved between windows by dragging, and a
+context menu on a tab offers "Move to new window". Session restore remembers
+every window's tabs. The `MainWindow` class was refactored from a single-page
+QStackedWidget into a tab manager over `ReaderPage` instances; `ReaderPage`
+objects are pooled and reused. A `TabBar` subclass of `QTabBar` provides the
+drag-and-drop protocol (`application/x-bookreader-tab`).
+
 ### 4.3 File picking (SAF) — done (2026-09-21)
 
 `MainActivity` uses `ActivityResultContracts.OpenDocument` (`ACTION_OPEN_DOCUMENT`)

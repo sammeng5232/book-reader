@@ -66,7 +66,13 @@ class _EngineTypesetter:
         holder = {}
 
         def work():
-            holder["error"] = str(_TEX.typeset(tex_path, pdf_path, _BUNDLE, _TEXCACHE) or "")
+            try:
+                holder["error"] = str(_TEX.typeset(tex_path, pdf_path, _BUNDLE, _TEXCACHE) or "")
+            except Exception as exc:
+                # Exceptions on the JNI worker do not propagate through join().
+                # Preserve the actual failure instead of reporting "no PDF" (or
+                # accepting a stale PDF from an earlier run).
+                holder["error"] = f"{type(exc).__name__}: {exc}"
 
         t = threading.Thread(target=work, daemon=True)
         t.start()

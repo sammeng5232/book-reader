@@ -280,6 +280,84 @@ function monoStack(cjk) {
   return out.join(',');
 }
 
+/* Mobile font routing keeps the text DOM intact: unicode-range separates Latin
+   from CJK even when the selected Chinese font also contains Latin glyphs.
+   Han shapes shared by Chinese/Japanese/Korean follow inherited BCP-47 lang. */
+var shMobileFonts = null;
+function applyMobileScriptFonts(s, fixed) {
+  if (!shMobileFonts) { shMobileFonts = mkStyle('mobile-fonts'); }
+  var enabled = mobileHost && !fixed && !s.use_book_fonts &&
+                Object.prototype.hasOwnProperty.call(s, 'font_hans');
+  de.toggleAttribute('data-er-script-fonts', enabled);
+  if (!enabled) { shMobileFonts.textContent = ''; return; }
+  var faces = Array.isArray(s.font_faces) ? s.font_faces : [];
+  var han = 'U+2E80-2FFF,U+3000-303F,U+31C0-31EF,U+3400-4DBF,U+4E00-9FFF,' +
+            'U+F900-FAFF,U+FE10-FE1F,U+FE30-FE4F,U+FF00-FFEF,U+20000-323AF';
+  var ranges = {
+    latin:'U+0000-052F,U+1E00-2BFF',
+    hans:han, hant:han,
+    japanese:han+',U+3040-30FF,U+31F0-31FF,U+1B000-1B16F',
+    korean:han+',U+1100-11FF,U+3130-318F,U+A960-A97F,U+AC00-D7FF'
+  };
+  var auto = {latin:'serif',hans:'ER Fandol Song',hant:'ER Fandol Song',
+              japanese:'sans-serif',korean:'sans-serif'};
+  var systemNames = {
+    latin:{serif:['Noto Serif','Droid Serif'], 'sans-serif':['Roboto','Noto Sans'], monospace:['Droid Sans Mono','Noto Sans Mono']},
+    hans:{serif:['Noto Serif CJK SC'], 'sans-serif':['Noto Sans CJK SC'], monospace:['Noto Sans Mono CJK SC','Noto Sans CJK SC']},
+    hant:{serif:['Noto Serif CJK TC'], 'sans-serif':['Noto Sans CJK TC'], monospace:['Noto Sans Mono CJK TC','Noto Sans CJK TC']},
+    japanese:{serif:['Noto Serif CJK JP'], 'sans-serif':['Noto Sans CJK JP'], monospace:['Noto Sans Mono CJK JP','Noto Sans CJK JP']},
+    korean:{serif:['Noto Serif CJK KR'], 'sans-serif':['Noto Sans CJK KR'], monospace:['Noto Sans Mono CJK KR','Noto Sans CJK KR']}
+  };
+  var q = function (v) { return '"'+String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/[\r\n\f]/g,' ')+'"'; };
+  var aliases={}, rules=[];
+  Object.keys(ranges).forEach(function (script) {
+    var family = String(s['font_'+script] || auto[script]);
+    var alias = 'ER Mobile '+script;
+    aliases[script]=q(alias);
+    var matched=faces.filter(function(f){return f && f.family===family &&
+      typeof f.url==='string' && /^\/__er_fonts\/(?:user\/)?[A-Za-z0-9_.-]+$/.test(f.url);});
+    if (matched.length) {
+      matched.forEach(function(f){
+        var weight=Math.max(100,Math.min(900,Number(f.weight)||400));
+        if (Array.isArray(f.weightRange) && f.weightRange.length===2) {
+          var lo=Math.max(100,Math.min(900,Number(f.weightRange[0])||400));
+          var hi=Math.max(100,Math.min(900,Number(f.weightRange[1])||400));
+          if (lo<hi) { weight=lo+' '+hi; }
+        }
+        var style=f.style==='italic'||f.italic?'italic':'normal';
+        rules.push('@font-face{font-family:'+q(alias)+';src:url('+q(f.url)+');font-weight:'+weight+
+          ';font-style:'+style+';font-display:swap;unicode-range:'+ranges[script]+';}');
+      });
+    } else {
+      var names=(systemNames[script]||{})[family] || [family];
+      var src=names.map(function(n){return 'local('+q(n)+')';}).join(',');
+      rules.push('@font-face{font-family:'+q(alias)+';src:'+src+';font-weight:100 900;'+
+        'font-style:normal;font-display:swap;unicode-range:'+ranges[script]+';}');
+    }
+  });
+  function stack(language) {
+    var order=['latin',language,'japanese','korean','hans','hant'];
+    return order.filter(function(k,i){return order.indexOf(k)===i;}).map(function(k){return aliases[k];}).join(',')+',serif';
+  }
+  var tag=(de.getAttribute('lang')||de.getAttribute('xml:lang')||doc.body&&doc.body.getAttribute('lang')||'').toLowerCase();
+  var base=/^ja(?:-|$)/.test(tag)?'japanese':/^ko(?:-|$)/.test(tag)?'korean':
+    /^zh-(?:hant|tw|hk|mo)(?:-|$)/.test(tag)?'hant':'hans';
+  de.style.setProperty('--er-ff',stack(base));
+  var scope=':root[data-er-script-fonts]:not([data-er-fxl])';
+  var fontRules=[scope+'{--er-mobile-font:'+stack(base)+';}'];
+  [['zh','hans'],['zh-Hans','hans'],['zh-CN','hans'],['zh-SG','hans'],
+   ['zh-Hant','hant'],['zh-TW','hant'],['zh-HK','hant'],['zh-MO','hant'],
+   ['ja','japanese'],['ko','korean']].forEach(function(pair){
+    fontRules.push(scope+':lang('+pair[0]+'),'+scope+' :lang('+pair[0]+'){--er-mobile-font:'+stack(pair[1])+';}');
+  });
+  // Selected typefaces are an explicit reader preference. Preserve semantic
+  // weights/styles and code/MathML fonts, not publisher family declarations.
+  fontRules.push(scope+','+scope+' body,'+scope+' body *:not(code):not(pre):not(kbd):not(samp):not(tt):not(math):not(math *):not(svg):not(svg *)'+
+    ':not(code *):not(pre *):not(kbd *):not(samp *):not(tt *){font-family:var(--er-mobile-font)!important;}');
+  rules.push('@layer er-safety{'+fontRules.join('')+'}');
+  shMobileFonts.textContent=rules.join('\n');
+}
+
 /* ===========================================================================
    THEME TOKENS  (see the table at the top of reader.css)
    Precedence: settings.colors (inline on <html>)  >  theme.py's unlayered
@@ -477,6 +555,132 @@ function eachStyleRule(rules, fn) {
 
 var ROOT_SEL  = /(^|,)\s*(html|body|:root)\s*(,|$)/i;
 var PARA_SEL  = /(^|,)[^,]*\bp\b(\.[\w-]+)?\s*(,|$)/i;
+
+/* Mobile image sizing. Save the author's dimensions BEFORE the geometry
+   safety sheet resets images to auto. Unsized formula series use one shared
+   em/pixel ratio, never a fixed total height per formula. */
+var mobileHost = false, formulaScales = {}, imageSizing = new WeakMap();
+function imageDeclarations() {
+  var rules = [], order = 0;
+  function read(rs) {
+    for (var i = 0; rs && i < rs.length; i++) {
+      var r = rs[i];
+      if (r.media && r.conditionText && !window.matchMedia(r.conditionText).matches) { continue; }
+      if (r.style && r.selectorText && ['width','height','max-width','max-height'].some(function (k) {
+        return !!r.style.getPropertyValue(k);
+      })) { rules.push({ rule:r, order:order++ }); }
+      if (r.cssRules) { read(r.cssRules); }
+    }
+  }
+  BOOK_SHEETS.forEach(function (s) { try { read(s.cssRules); } catch (e) {} });
+  return rules;
+}
+function selectorWeight(selector) {
+  var s = selector.replace(/:where\([^)]*\)/g, '');
+  return (s.match(/#[\w-]+/g) || []).length * 1000000 +
+    (s.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) || []).length * 1000 +
+    (s.replace(/#[\w-]+|\.[\w-]+|\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?/g, '').match(/[A-Za-z][\w-]*/g) || []).length;
+}
+function captureImageSizing() {
+  if (!mobileHost || st.fxl) { return; }
+  if (!Array.prototype.some.call(doc.images, function (img) { return !imageSizing.has(img); })) { return; }
+  var rules = imageDeclarations(), props = ['width','height','max-width','max-height'];
+  var own = [], initial = !st.inited;
+  if (initial) {
+    Array.prototype.forEach.call(doc.styleSheets, function (s) {
+      if (isOwnSheet(s) && !s.disabled) { own.push(s); s.disabled = true; }
+    });
+  }
+  try {
+    Array.prototype.forEach.call(doc.images, function (img) {
+      if (img.closest('#er-zoom,#er-pop')) { return; }
+      if (imageSizing.has(img)) { return; }
+      var values = {}, ranks = {}, cs = getComputedStyle(img), font = parseFloat(cs.fontSize) || 16;
+      props.forEach(function (k) {
+        var v = img.getAttribute(k);
+        if (v) { values[k] = /^\d+(\.\d+)?$/.test(v) ? v + 'px' : v; ranks[k] = -1; }
+      });
+      function take(style, score) {
+        props.forEach(function (k) {
+          var value = style.getPropertyValue(k), rank = score + (style.getPropertyPriority(k) ? 1e12 : 0);
+          if (value && (ranks[k] === undefined || rank >= ranks[k])) { values[k] = value; ranks[k] = rank; }
+        });
+      }
+      rules.forEach(function (entry) {
+        entry.rule.selectorText.split(',').forEach(function (selector) {
+          try { if (img.matches(selector)) { take(entry.rule.style, selectorWeight(selector) * 10000 + entry.order); } }
+          catch (e) { /* unsupported selector: retain the browser's original rule */ }
+        });
+      });
+      take(img.style, 1e11);
+      props.forEach(function (k) {
+        var v = (values[k] || '').trim(), m = /^([\d.]+)(px|pt|pc|in|cm|mm)$/i.exec(v);
+        if (m) {
+          var px = Number(m[1]) * ({px:1,pt:4/3,pc:16,in:96,cm:96/2.54,mm:96/25.4})[m[2].toLowerCase()];
+          values[k] = (px / font).toFixed(6) + 'em';
+        }
+      });
+      imageSizing.set(img, { values:values, candidate:null });
+    });
+  } finally { own.forEach(function (s) { s.disabled = false; }); }
+}
+function formulaCandidate(img, record) {
+  if (record.candidate !== null) { return record.candidate; }
+  var w = img.naturalWidth, h = img.naturalHeight;
+  if (!img.complete || !w) { return false; }
+  record.candidate = false;
+  if (h < 8 || h > 300 || w < 3 || w > 1800 || w*h > 300000) { return false; }
+  try {
+    var canvas = doc.createElement('canvas');
+    var scale = Math.min(1, 80 / Math.max(w,h));
+    canvas.width = Math.max(1, Math.round(w*scale)); canvas.height = Math.max(1, Math.round(h*scale));
+    var ctx = canvas.getContext('2d', {willReadFrequently:true});
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    var data = ctx.getImageData(0,0,canvas.width,canvas.height).data, ink = 0, colour = 0;
+    for (var i=0;i<data.length;i+=4) {
+      if (Math.max(data[i],data[i+1],data[i+2])-Math.min(data[i],data[i+1],data[i+2])>35) { colour++; }
+      if ((data[i]+data[i+1]+data[i+2])/3 < 160) { ink++; }
+    }
+    var total = data.length/4;
+    record.candidate = colour <= total*.02 && ink > total*.01 && ink < total*.35;
+  } catch (e) { /* foreign or undecodable pictures keep source dimensions */ }
+  return record.candidate;
+}
+function applyReaderImageSizing() {
+  if (!mobileHost || st.fxl) { return; }
+  captureImageSizing();
+  Array.prototype.forEach.call(doc.images, function (img) {
+    if (img.closest('#er-zoom,#er-pop')) { return; }
+    var record = imageSizing.get(img); if (!record) { return; }
+    var v = record.values, width = v.width, height = v.height;
+    var explicit = (width && width !== 'auto') || (height && height !== 'auto');
+    var scale = 0;
+    try {
+      var path = decodeURIComponent(new URL(img.currentSrc || img.src, doc.baseURI).pathname).replace(/^\//,'').toLowerCase();
+      scale = Number(formulaScales[path.replace(/\d+/g,'#')]) || 0;
+    } catch (e) {}
+    if (!explicit && scale && img.naturalHeight * scale <= 12 && formulaCandidate(img,record)) {
+      width = (img.naturalWidth*scale).toFixed(6) + 'em'; height = 'auto';
+      img.setAttribute('data-er-formula','estimated');
+    } else if (!explicit) { return; }
+    // Constrain with one axis. CSS max-width plus a definite height otherwise
+    // squeezes a fraction horizontally when it meets the phone's page edge.
+    if ((!width || width === 'auto') && height && height !== 'auto' && img.naturalHeight) {
+      var hm = /^([\d.]+)(em|ex|rem|px|pt|cm|mm|in|%)$/.exec(height);
+      if (hm && hm[2] !== '%') {
+        width = (Number(hm[1]) * img.naturalWidth / img.naturalHeight).toFixed(6) + hm[2];
+        height = 'auto';
+      }
+    }
+    img.setAttribute('data-er-image-size','');
+    img.style.setProperty('--er-image-width',width || 'auto');
+    img.style.setProperty('--er-image-height',height || 'auto');
+    ['max-width','max-height'].forEach(function (k) {
+      if (v[k] && v[k] !== 'none') { img.style.setProperty('--er-image-' + k,v[k]); }
+    });
+  });
+}
 
 /* 4a. px/pt font-size -> rem, so the user's size scales the BOOK'S hierarchy.
        Verified: the h1:body ratio stayed exactly 2.000 from 16px to 26px.
@@ -753,6 +957,7 @@ function measure() {
   st.padT = Math.max(0, Math.min(Math.round(s.page_margin_px), Math.floor(st.H / 4)));
   st.padB = st.padT;
   st.pageH = Math.max(1, st.H - st.padT - st.padB);
+  de.style.setProperty('--er-image-page-height', st.mode === 'paginated' ? st.pageH + 'px' : '100000px');
 }
 
 /* Page turns are instant: a book's `html{scroll-behavior:smooth}` would
@@ -1950,6 +2155,7 @@ function installInput() {
     if (e.pointerId !== pid) { return; }
     if (Math.abs(e.clientX - px) > 8 || Math.abs(e.clientY - py) > 8) { moved = true; }
   }, true);
+  W_.addEventListener('pointercancel', function () { pid = null; moved = true; }, true);
   W_.addEventListener('pointerup', function (e) {
     if (!st.inited || e.pointerId !== pid) { return; }
     pid = null;
@@ -1958,12 +2164,13 @@ function installInput() {
     if (zoomEl) { closeZoom(); e.preventDefault(); e.stopImmediatePropagation(); return; }
     if (pop && !pop.contains(e.target)) { hideNote(); return; }
 
-    if (moved && st.mode === 'paginated' && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6 && dt < 700) {
+    if (!mobileHost && moved && st.mode === 'paginated' && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6 && dt < 700) {
       e.preventDefault(); e.stopImmediatePropagation();
       turn(dx < 0 ? 1 : -1);
       return;
     }
     if (moved) { reportSelection(); return; }
+    if (mobileHost && dt > 350) { return; }
 
     /* links are handled on `click` (below) so the navigation it would cause
        can be cancelled; a tap on a link must not also turn the page */
@@ -1983,12 +2190,47 @@ function installInput() {
       return;
     }
 
-    if (st.mode !== 'paginated') { return; }
+    if (st.mode !== 'paginated') {
+      if (mobileHost) { emit('keyUnhandled', 'EpubReader.TapCentre', true); }
+      return;
+    }
     var z = e.clientX / Math.max(1, st.W);      /* 22% / 56% / 22% zones */
     if (z < 0.22) { turn(-1); }
     else if (z > 0.78) { turn(1); }
     else { emit('keyUnhandled', 'EpubReader.TapCentre', true); }
   }, true);
+
+  /* Observe touch without cancelling WebView's pan/fling. Pointer events may
+     be cancelled when native scrolling starts, but passive touchend still
+     tells us whether a SECOND outward gesture started at a chapter boundary.
+     A fling that merely reaches the last paragraph must not skip it. */
+  var mobileTouch = null, lastChapterGesture = 0;
+  W_.addEventListener('touchstart', function (e) {
+    if (!mobileHost || !st.inited || e.touches.length !== 1 || zoomEl ||
+        (pop && pop.contains(e.target)) || isEditable(e.target)) { mobileTouch = null; return; }
+    var t = e.touches[0];
+    mobileTouch = {x:t.clientX,y:t.clientY,time:Date.now(),start:scrollPos(),max:scrollMax()};
+  }, {capture:true,passive:true});
+  W_.addEventListener('touchcancel', function () { mobileTouch = null; }, {capture:true,passive:true});
+  W_.addEventListener('touchend', function (e) {
+    var down = mobileTouch; mobileTouch = null;
+    if (!down || !e.changedTouches.length || e.touches.length || zoomEl ||
+        (window.getSelection && String(window.getSelection() || '').length)) { return; }
+    var t = e.changedTouches[0], dx = t.clientX-down.x, dy = t.clientY-down.y;
+    var elapsed = Date.now()-down.time, ax = Math.abs(dx), ay = Math.abs(dy);
+    if (elapsed > 1200 || Math.max(ax,ay) < 32) { return; }
+    if (st.mode === 'paginated') {
+      if (ay > ax*1.25) { turn(dy < 0 ? 1 : -1); }
+      else if (ax > ay*1.25) { turn(dx < 0 ? 1 : -1); }
+      return;
+    }
+    if (st.mode !== 'scroll' || st.vertical || ay < ax*1.35 || Date.now()-lastChapterGesture < 400) { return; }
+    if (dy < 0 && down.start >= down.max-2) {
+      lastChapterGesture=Date.now(); emit('keyUnhandled','EpubReader.NextChapter',true);
+    } else if (dy > 0 && down.start <= 2) {
+      lastChapterGesture=Date.now(); emit('keyUnhandled','EpubReader.PrevChapter',true);
+    }
+  }, {capture:true,passive:true});
 
   /* LOAD-BEARING: preventDefault on pointerup does NOT cancel the click that
      follows, so a link would both be reported AND navigate (a double
@@ -2055,6 +2297,7 @@ function installInput() {
   W_.addEventListener('load', function () { lateRelayout(); });
   doc.addEventListener('load', function (e) {
     var t = e.target;
+    if (t && /^(img|link)$/i.test(t.tagName || '')) { applyReaderImageSizing(); }
     if (t && /^(img|iframe|image|link|svg|object|video)$/i.test(t.tagName || '')) { lateRelayout(); }
   }, true);
   doc.addEventListener('error', function (e) {
@@ -2118,6 +2361,7 @@ function applySettings(sIn, skipRestore) {
   set('--er-lh', String(Number(s.line_height) || 1.9));
   set('--er-ff', fontStack(s.font_latin, s.font_cjk));
   set('--er-mono', monoStack(s.font_cjk));
+  applyMobileScriptFonts(s, fxl);
   set('--er-align', s.text_align || 'start');
   set('--er-hyphens', s.hyphens || 'manual');
 
@@ -2160,6 +2404,7 @@ function applySettings(sIn, skipRestore) {
   else if (st.vertical) { st.mode = 'scroll'; }
   else { st.mode = wanted; }
 
+  applyReaderImageSizing();
   relayout();
   if (loc && !skipRestore) { restore(loc); }
   report();
@@ -2215,6 +2460,8 @@ function guard(fn, fallback, needsInit) {
 var fontsHooked = false;
 function doInit(cfg) {
   cfg = cfg || {};
+  mobileHost = cfg.mobileHost === true;
+  formulaScales = cfg.formulaScales || {};
   if (!doc.body) { return null; }
   ensureBaseCSS(cfg);
   ensureSheets();
@@ -2238,8 +2485,10 @@ function doInit(cfg) {
   st.fxl = wantFXL ? (cfg.viewport || detectFXL() || { w: 1200, h: 1600, src: 'default' })
                    : (cfg.fixedLayout === false ? null : detectFXL());
   if (st.fxl) { de.setAttribute('data-er-fxl', ''); } else { de.removeAttribute('data-er-fxl'); }
+  if (mobileHost) { de.setAttribute('data-er-mobile', ''); }
 
   collectSheets();
+  captureImageSizing();
   defend();
   installInput();
 

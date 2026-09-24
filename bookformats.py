@@ -9,6 +9,7 @@ search, highlights, themes, covers) works for them unchanged:
 * MOBI / PRC / AZW / AZW3  converted by :mod:`mobi` (DRM is refused, never removed)
 * DjVu                     wrapped by :mod:`djvu` as a fixed-layout book whose page
                            images are rendered on demand
+* PDF                      fixed-layout pages and text through :mod:`pdfbook`
 
 Files are recognised by their content, not their extension.  A converted book's
 ``path`` is the user's original file (so its identity, origin and "show in
@@ -31,7 +32,7 @@ from epublib import EpubBook, EpubError
 __all__ = ["BOOK_EXTENSIONS", "sniff", "open_book", "converted_dir", "is_book_file"]
 
 #: File extensions offered in open dialogs and picked up by folder scans.
-BOOK_EXTENSIONS = (".epub", ".mobi", ".azw3", ".azw", ".prc", ".djvu", ".djv")
+BOOK_EXTENSIONS = (".epub", ".mobi", ".azw3", ".azw", ".prc", ".djvu", ".djv", ".pdf")
 
 _convert_lock = threading.Lock()
 
@@ -41,13 +42,15 @@ def is_book_file(path: str) -> bool:
 
 
 def sniff(path: "str | os.PathLike[str]") -> str | None:
-    """``"epub"``, ``"mobi"``, ``"djvu"``, ``"kfx"``, ``"topaz"`` or ``None``."""
+    """``"epub"``, ``"mobi"``, ``"djvu"``, ``"pdf"``, ``"kfx"``, ``"topaz"`` or ``None``."""
     with open(path, "rb") as fh:
-        head = fh.read(96)
+        head = fh.read(1024)
     if head[:4] == b"PK\x03\x04":
         return "epub"
     if head[:8] == b"AT&TFORM":
         return "djvu"
+    if b"%PDF-" in head:
+        return "pdf"
     import mobi
     return mobi.detect(head)
 
@@ -131,6 +134,9 @@ def open_book(path: "str | os.PathLike[str]", *, cache_root: str | None = None,
     if fmt == "djvu":
         import djvu
         return djvu.open_book(spath, cache_root=cache_root, content_key=content_key)
+    if fmt == "pdf":
+        import pdfbook
+        return pdfbook.open_book(spath, cache_root=cache_root, content_key=content_key)
     raise EpubError("unrecognised file", kind="corrupt", detail=fmt or "")
 
 

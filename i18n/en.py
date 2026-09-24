@@ -241,7 +241,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "This book uses vertical text, so it opens in scrolling mode",
     "status.link.missing": "This link points to something that is not in the book",
     "status.save_failed": "Could not save reading data. It will be tried again shortly.",
-    "status.drop.unsupported": "Only EPUB, MOBI, AZW3 and DjVu files can be opened",
+    "status.drop.unsupported": "Only EPUB, MOBI, AZW3, DjVu and PDF files can be opened",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "under 1 min",
@@ -464,7 +464,7 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "Open Book",
-    "dlg.open.filter": "Books (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
+    "dlg.open.filter": "Books (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv *.pdf);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv);;PDF (*.pdf)",
     "dlg.all_files": "All files (*)",
     "dlg.folder.title": "Choose a Folder",
     "dlg.relocate.title": "Locate “{title}”",
@@ -489,7 +489,7 @@ TABLE: dict[str, str] = {
     "err.access.title": "Can't read this file",
     "err.access.body": "Another program may be using it, or reading it may not be permitted.",
     "err.unsupported.title": "This format isn't supported",
-    "err.unsupported.body": "{app} can open EPUB, MOBI, AZW3 and DjVu files. This file uses a format it doesn't support, such as Kindle KFX or Topaz.",
+    "err.unsupported.body": "{app} can open EPUB, MOBI, AZW3, DjVu and PDF files. This file uses a format it doesn't support, such as Kindle KFX or Topaz.",
     "err.unexpected.body": "Something unexpected happened while opening it. The technical details show the cause.",
     "err.section": "This section can't be displayed",
     "err.details": "Technical Details",
@@ -510,7 +510,7 @@ TABLE: dict[str, str] = {
 
     # ---- command line ----
     "cli.usage": "Usage: {exe} [book file]",
-    "cli.description": "Opens an EPUB, MOBI, AZW3 or DjVu book, or the library when no file is given.",
+    "cli.description": "Opens an EPUB, MOBI, AZW3, DjVu or PDF book, or the library when no file is given.",
     "cli.help": "Show this help and exit",
     "cli.not_found": "File not found: {path}",
 
@@ -567,6 +567,11 @@ TABLE: dict[str, str] = {
     "tabs.new": "New tab (opens the library)",
     "tabs.close": "Close tab",
     "tabs.close_others": "Close other tabs",
+    "tabs.move_to_new_window": "Move to new window",
+    "tabs.move_to_window": "Move tab to window",
+    "status.pdf_page": "Page {page} of {pages}",
+    "err.pdf_password.title": "This PDF needs a password",
+    "err.pdf_password.body": "Open an unlocked copy of this PDF. Password entry is not available in this reader yet.",
     "keys.lib_move": "Move the selection",
     "keys.lib_open": "Open the selected book",
     "keys.lib_focus_search": "Go to the search box",

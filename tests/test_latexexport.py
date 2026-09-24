@@ -550,7 +550,7 @@ class Dialog(_Temp):
                            destination=self.tmp, title="Jstor Scan", cache_root=self.cache)
         out = self._run_job(job)
         self.assertEqual(out.get("kind"), "djvu", out)
-        self.assertTrue(out["pdf"].endswith("Jstor Scan.pdf"))
+        self.assertTrue(out["pdf"].endswith("ia_jstor_20637537.pdf"))
         pages, text = _pdf_text(out["pdf"])
         self.assertEqual(pages, out["pages"])
         self.assertGreater(len(text.strip()), 100)

@@ -6,22 +6,26 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.webkit.WebView
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.RadioButton
-import android.widget.RadioGroup
+import android.widget.ArrayAdapter
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Button
+import android.widget.EditText
+import android.widget.CheckBox
+import android.widget.ListView
+import android.text.Editable
+import android.text.TextWatcher
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.drawerlayout.widget.DrawerLayout
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.abs
 
 /**
  * The Android reading surface: a WebView running the desktop's reader.js engine.
@@ -50,30 +54,42 @@ class ReaderActivity : AppCompatActivity() {
     private var currentSpine = 0
     private var pageCount = 1
     private var page = 0
+    private var scrollPercent = 0.0
 
     // ---- reading settings -------------------------------------------------
     private var dark = false
     private var bgKey = "white"                        // white | sepia | green | grey
     private var fontSizePx = 21
-    private var fontLatin = "serif"
-    private var fontCjk = "sans-serif"
-    private var fontJp = "sans-serif"
-    private var fontJpChangedAfterCjk = false        // which CJK picker was touched last
+    private val fontSelections = mutableMapOf<String, String>()
+    private val fontLibrary by lazy { FontLibrary(this) }
     private var scrollMode = true                      // scroll is the phone default
     private var startSpine = 0
     private var initialized = false
     private var pendingLocator: JSONObject? = null
 
-    private var downX = 0f
-    private var downY = 0f
-    private var downT = 0L
+    private var formulaScales = JSONObject()
+    private var fixedLayout = false
+    private var openAtEnd = false
+    private val prefs by lazy { getSharedPreferences("epub_reader_settings", Context.MODE_PRIVATE) }
+    private val saveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingPosition: Pair<String, Double>? = null
+    private val savePosition = Runnable { flushPosition() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val path = intent.getStringExtra(EXTRA_PATH) ?: run { finish(); return }
         startSpine = intent.getIntExtra("spine", 0)     // autorun/debug
-
+        loadSettings()
         buildUi()
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    drawer.isDrawerOpen(Gravity.START) -> drawer.closeDrawer(Gravity.START)
+                    sheet.visibility == View.VISIBLE -> sheet.visibility = View.GONE
+                    else -> finish()
+                }
+            }
+        })
         host = BookHost(this, webView)
         host.listener = HostEvents()
         host.install()
@@ -93,7 +109,8 @@ class ReaderActivity : AppCompatActivity() {
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
         webView = WebView(this)
-        webView.setOnTouchListener(TapListener())
+        // WebView must receive the complete touch sequence, especially UP: it
+        // computes fling velocity there. reader.js handles taps/edge gestures.
 
         // ---- the status line (always visible) ----
         statusBar = LinearLayout(this).apply {
@@ -206,10 +223,9 @@ class ReaderActivity : AppCompatActivity() {
 
         sheetBg.addView(separator())
 
-        // -- rows 4-6: font pickers --
-        sheetBg.addView(fontPicker("English font", LATIN_FONTS) { fontLatin = it; applySettings() })
-        sheetBg.addView(fontPicker("Chinese font", CJK_FONTS) { fontCjk = it; fontJpChangedAfterCjk = false; applySettings() })
-        sheetBg.addView(fontPicker("Japanese font", JP_FONTS) { fontJp = it; fontJpChangedAfterCjk = true; applySettings() })
+        // Language-specific selections are mapped by the reading engine, not
+        // concatenated after a generic family which would mask CJK choices.
+        sheetBg.addView(fontPicker())
 
         return sheetBg
     }
@@ -228,77 +244,93 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    /** A row of radio-style choices; the chosen one is applied to the page. */
-    private fun fontPicker(title: String, options: List<Pair<String, String>>, onPick: (String) -> Unit): View {
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(label(title))
-        val group = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        for (i in options.indices) {
-            val name = options[i].first
-            val family = options[i].second
-            val rb = RadioButton(this).apply {
-                text = name
-                textSize = 13f
-                isChecked = i == 0
-                setOnClickListener { onPick(family) }
-            }
-            group.addView(rb)
-        }
-        col.addView(group)
-        return col
+    private fun fontPicker(): View = Button(this).apply {
+        text = "字体设置 / Fonts by language"
+        setOnClickListener { showFontSettings() }
     }
 
-    // ======================================================================
-    // Gestures
-    // ======================================================================
-    private inner class TapListener : View.OnTouchListener {
-        override fun onTouch(v: View, e: MotionEvent): Boolean {
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; downT = e.eventTime }
-                MotionEvent.ACTION_UP -> {
-                    val dx = e.x - downX
-                    val dy = e.y - downY
-                    val dt = e.eventTime - downT
-                    val isTap = dt < 300 && abs(dx) < 16 && abs(dy) < 16
-                    if (isTap) {
-                        val w = v.width
-                        when {
-                            !scrollMode && e.x < w * 0.25f -> { turn(-1); return true }
-                            !scrollMode && e.x > w * 0.75f -> { turn(1); return true }
-                            else -> { toggleChrome(); return true }
-                        }
-                    }
-                    if (abs(dy) > 140 && abs(dy) > abs(dx) * 2f) {
-                        if (!scrollMode) {
-                            turn(if (dy < 0) 1 else -1)
-                        } else {
-                            val density = v.resources.displayMetrics.density
-                            val contentBottom = webView.contentHeight * density
-                            val atBottom = webView.scrollY + webView.height >= contentBottom - 16
-                            val atTop = webView.scrollY <= 0
-                            if (dy < 0 && atBottom && currentSpine < spine.length() - 1) navigate(currentSpine + 1)
-                            else if (dy > 0 && atTop && currentSpine > 0) navigate(currentSpine - 1)
-                        }
-                        return true
-                    }
+    private fun showFontSettings() {
+        fontLibrary.reload()
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        val count = fontLibrary.all().map { it.family }.distinct().size
+        content.addView(label("$count 种字体 · 按语言独立设置，改动立即保存"))
+        for ((script, title) in FONT_LANGUAGES) {
+            val button = Button(this)
+            fun update() { button.text = "$title：${fontLibrary.displayName(fontSelections[script] ?: "")}" }
+            update()
+            button.setOnClickListener {
+                showFontChoices(script, title) { family ->
+                    fontSelections[script] = family
+                    applySettings()
+                    update()
                 }
             }
-            return false
+            content.addView(button, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT))
         }
+        content.addView(label("自动选项跟随西文或书籍语言。列表优先显示支持当前语言的字体；可勾选“全部字体”。"))
+        AlertDialog.Builder(this).setTitle("字体设置 / Fonts by language")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setPositiveButton("完成", null).show()
     }
 
-    private fun turn(dir: Int) {
-        val before = page
-        host.callReader(if (dir > 0) "nextPage" else "prevPage") { result ->
-            val st = result as? JSONObject ?: return@callReader
-            page = st.optInt("page")
-            pageCount = maxOf(1, st.optInt("pages"))
-            updateStatus()
-            if (page == before) {
-                val next = currentSpine + dir
-                if (next in 0 until spine.length()) navigate(next)
-            }
+    private fun showFontChoices(script: String, title: String, onPick: (String) -> Unit) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (18 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
         }
+        val query = EditText(this).apply {
+            hint = "搜索字体名称、字族或来源"
+            isSingleLine = true
+        }
+        val showAll = CheckBox(this).apply { text = "全部字体（包括不完整支持此语言的字体）" }
+        val list = ListView(this).apply { choiceMode = ListView.CHOICE_MODE_SINGLE }
+        val empty = TextView(this).apply {
+            text = "没有匹配的字体"; gravity = Gravity.CENTER; setPadding(0, 20, 0, 20)
+        }
+        var choices: List<FontLibrary.Entry> = emptyList()
+        val adapter = ArrayAdapter<String>(this, android.R.layout.simple_list_item_single_choice)
+        list.adapter = adapter
+        fun refresh() {
+            val text = query.text.toString().trim()
+            val automatic = FontLibrary.Entry("auto", "自动 / Auto", "", source="跟随西文或书籍语言")
+            choices = (listOf(automatic) + fontLibrary.families(script, showAll.isChecked)).filter {
+                text.isEmpty() || (it.name + " " + it.family + " " + it.source + " " + it.aliases.joinToString(" "))
+                    .contains(text, ignoreCase = true)
+            }
+            adapter.clear()
+            adapter.addAll(choices.map {
+                val selected = if (it.family == (fontSelections[script] ?: "")) "  ✓" else ""
+                "${it.name}$selected\n${it.source}"
+            })
+            adapter.notifyDataSetChanged()
+            val index = choices.indexOfFirst { it.family == (fontSelections[script] ?: "") }
+            if (index >= 0) list.setItemChecked(index, true)
+            empty.visibility = if (choices.isEmpty()) View.VISIBLE else View.GONE
+        }
+        query.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { refresh() }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        showAll.setOnCheckedChangeListener { _, _ -> refresh() }
+        content.addView(query)
+        content.addView(showAll)
+        content.addView(empty)
+        content.addView(list, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+            (resources.displayMetrics.heightPixels * .50).toInt()))
+        val dialog = AlertDialog.Builder(this).setTitle(title).setView(content)
+            .setNegativeButton("取消", null).create()
+        list.setOnItemClickListener { _, _, position, _ ->
+            choices.getOrNull(position)?.let { onPick(it.family); dialog.dismiss() }
+        }
+        refresh()
+        dialog.show()
     }
 
     private fun toggleChrome() {
@@ -318,9 +350,12 @@ class ReaderActivity : AppCompatActivity() {
         totalUnits = maxOf(1, info.optInt("totalUnits", 1))
         title = info.optString("title")
         pendingLocator = info.optJSONObject("position")?.optJSONObject("locator")
+        formulaScales = info.optJSONObject("formulaScales") ?: JSONObject()
+        fixedLayout = info.optBoolean("fixedLayout")
         buildToc(info.optJSONArray("toc") ?: JSONArray())
         applyChromeTheme()
-        navigate(startSpine)
+        val savedSpine = pendingLocator?.optString("zip")?.let { findSpine(it) } ?: -1
+        navigate(if (!intent.hasExtra("spine") && savedSpine >= 0) savedSpine else startSpine)
     }
 
     private fun buildToc(entries: JSONArray) {
@@ -364,6 +399,10 @@ class ReaderActivity : AppCompatActivity() {
             if (initialized) return
             val cfg = JSONObject()
                 .put("settings", settingsJson())
+                .put("mobileHost", true)
+                .put("formulaScales", formulaScales)
+                .put("fontFaces", fontLibrary.fontFaces())
+                .put("fixedLayout", fixedLayout)
                 .put("mode", if (scrollMode) "scroll" else "paginated")
                 .put("book", JSONObject()
                     .put("offset", spine.getJSONObject(currentSpine).optInt("offset"))
@@ -376,6 +415,7 @@ class ReaderActivity : AppCompatActivity() {
                 initialized = true
                 page = st.optInt("page")
                 pageCount = maxOf(1, st.optInt("pages"))
+                if (openAtEnd) { openAtEnd = false; host.callReader("gotoPercent", 1.0) }
                 updateStatus()
             }
         }
@@ -385,9 +425,23 @@ class ReaderActivity : AppCompatActivity() {
         override fun onPosition(state: JSONObject) {
             page = state.optInt("page")
             pageCount = maxOf(1, state.optInt("pages"))
+            // Shared JS reports character positions, while Android's spine
+            // weights are estimated units. Combine chapter progress with those
+            // weights here instead of mixing the two units (which showed 100%).
+            val item = spine.optJSONObject(currentSpine)
+            val off = item?.optInt("offset", 0) ?: 0
+            val units = item?.optInt("units", 1) ?: 1
+            scrollPercent = ((off + state.optDouble("chapterPercent", 0.0).coerceIn(0.0, 1.0) * units) /
+                totalUnits.coerceAtLeast(1)).coerceIn(0.0, 1.0)
             updateStatus()
-            val loc = state.opt("locator") ?: state.optJSONObject("capture")
-            if (loc != null) host.savePosition(loc.toString(), state.optDouble("percent"))
+            val zip = host.currentZip
+            host.callReader("capture") { loc ->
+                if (loc is JSONObject && zip == host.currentZip) {
+                    pendingPosition = loc.put("zip", zip).toString() to scrollPercent
+                    saveHandler.removeCallbacks(savePosition)
+                    saveHandler.postDelayed(savePosition, 350)
+                }
+            }
         }
 
         override fun onLink(zip: String, fragment: String, url: String?) {
@@ -399,6 +453,19 @@ class ReaderActivity : AppCompatActivity() {
         override fun onLog(message: String) {
             android.util.Log.i("BookReader", "page: $message")
         }
+
+        override fun onReaderCommand(command: String) {
+            if (!initialized) return
+            when (command) {
+                "EpubReader.TapCentre" -> toggleChrome()
+                "EpubReader.NextChapter" -> if (currentSpine + 1 < spine.length()) {
+                    openAtEnd = false; navigate(currentSpine + 1)
+                }
+                "EpubReader.PrevChapter" -> if (currentSpine > 0) {
+                    openAtEnd = true; navigate(currentSpine - 1)
+                }
+            }
+        }
     }
 
     private fun findSpine(zipName: String): Int {
@@ -409,14 +476,15 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     private fun updateStatus() {
-        val percent = if (totalUnits > 1) {
+        val percent = if (scrollMode) (scrollPercent * 100).toInt() else if (totalUnits > 1) {
             val off = spine.getJSONObject(currentSpine).optInt("offset")
             val units = spine.getJSONObject(currentSpine).optInt("units", 1)
             val frac = if (pageCount > 0) page.toDouble() / pageCount else 0.0
             ((off + frac * units) / totalUnits * 100).toInt()
         } else 0
         progress.progress = percent
-        status.text = "${page + 1} / $pageCount · $percent%"
+        status.text = if (scrollMode) "${currentSpine + 1} / ${spine.length()} · $percent%"
+            else "${page + 1} / $pageCount · $percent%"
     }
 
     // ======================================================================
@@ -444,10 +512,6 @@ class ReaderActivity : AppCompatActivity() {
         // Line height tracks the font size so large text doesn't feel double-spaced:
         // it eases from 2.0 at small sizes toward 1.5 at the largest.
         val lineHeight = 2.1 - (fontSizePx - 12) * (0.6 / 28.0)   // 12px→2.1, 40px→1.5
-        // reader.js's font_cjk is ONE family name (it builds the CJK stack from it).
-        // The Chinese and Japanese pickers both feed it; the most recent choice wins,
-        // since a CJK font renders Chinese, Japanese and Korean alike.
-        val cjk = if (fontJpChangedAfterCjk) fontJp else fontCjk
         return JSONObject()
             .put("theme", if (dark) "night" else "day")
             .put("colors", colors)
@@ -455,13 +519,19 @@ class ReaderActivity : AppCompatActivity() {
             .put("font_size_px", fontSizePx)
             .put("line_height", Math.round(lineHeight * 100.0) / 100.0)
             .put("page_margin_px", 48)
-            .put("font_latin", fontLatin)
-            .put("font_cjk", cjk)
+            .put("font_latin", fontSelections["latin"].orEmpty().ifBlank { "serif" })
+            .put("font_cjk", fontSelections["hans"].orEmpty().ifBlank { fontSelections["latin"].orEmpty().ifBlank { "serif" } })
+            .put("font_hans", fontSelections["hans"].orEmpty())
+            .put("font_hant", fontSelections["hant"].orEmpty())
+            .put("font_japanese", fontSelections["japanese"].orEmpty())
+            .put("font_korean", fontSelections["korean"].orEmpty())
+            .put("font_faces", fontLibrary.fontFaces())
             .put("image_click_zoom", true)
             .put("invert_images_in_dark", dark)
     }
 
     private fun applySettings() {
+        persistSettings()
         applyChromeTheme()
         if (initialized) host.callReader("applySettings", settingsJson())
     }
@@ -473,7 +543,32 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun toggleMode() {
         scrollMode = !scrollMode
-        if (initialized) host.callReader("applySettings", settingsJson())
+        applySettings()
+    }
+
+    private fun loadSettings() {
+        dark = prefs.getBoolean("dark", false)
+        bgKey = prefs.getString("background", "white")?.takeIf { k -> BACKGROUNDS.any { it.first == k } } ?: "white"
+        fontSizePx = prefs.getInt("font_size", 21).coerceIn(12, 40)
+        val old = if (prefs.contains("font_family")) prefs.getString("font_family", "").orEmpty() else ""
+        // Keep the previous single-font appearance until each language is edited.
+        for ((script, _) in FONT_LANGUAGES) {
+            fontSelections[script] = prefs.getString("font_$script", old) ?: old
+        }
+        scrollMode = prefs.getBoolean("scroll", true)
+    }
+
+    private fun persistSettings() {
+        val edit = prefs.edit().putBoolean("dark", dark).putString("background", bgKey)
+            .putInt("font_size", fontSizePx).putBoolean("scroll", scrollMode).putInt("font_settings_version", 2)
+        for ((script, family) in fontSelections) edit.putString("font_$script", family)
+        edit.apply()
+    }
+
+    private fun flushPosition() {
+        saveHandler.removeCallbacks(savePosition)
+        pendingPosition?.let { (locator, percent) -> host.savePosition(locator, percent) }
+        pendingPosition = null
     }
 
     private fun applyChromeTheme() {
@@ -488,6 +583,7 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        flushPosition()
         host.close()
         webView.destroy()
         super.onDestroy()
@@ -513,26 +609,12 @@ class ReaderActivity : AppCompatActivity() {
         private val BORDER = mapOf("white" to "#E0E0E0", "sepia" to "#DFD5C0", "green" to "#C9D6C3", "grey" to "#D4D4D4")
         private val SELECTION = mapOf("white" to "#B4D5FE", "sepia" to "#E3D3AE", "green" to "#C3D8B8", "grey" to "#C8D4E0")
 
-        // Fonts that actually resolve on Android: the system only exposes the generic
-        // families (serif / sans-serif / monospace / cursive) — named fonts like
-        // "Noto Sans CJK SC" are NOT in fonts.xml, so WebView silently ignores them.
-        // The CJK serif/sans difference is real: serif maps to Noto Serif CJK and
-        // sans-serif to Noto Sans CJK.
-        private val LATIN_FONTS = listOf(
-            "Serif" to "serif",
-            "Sans" to "sans-serif",
-            "Monospace" to "monospace",
-            "Cursive" to "cursive",
-        )
-        private val CJK_FONTS = listOf(
-            "Sans" to "sans-serif",
-            "Serif" to "serif",
-            "Monospace" to "monospace",
-        )
-        private val JP_FONTS = listOf(
-            "Sans" to "sans-serif",
-            "Serif" to "serif",
-            "Monospace" to "monospace",
+        private val FONT_LANGUAGES = listOf(
+            "latin" to "西文 / Latin",
+            "hans" to "简体中文",
+            "hant" to "繁體中文",
+            "japanese" to "日本語",
+            "korean" to "한국어",
         )
     }
 }

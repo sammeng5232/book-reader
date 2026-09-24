@@ -62,7 +62,7 @@ from epublib import EpubBook, is_remote
 
 __all__ = [
     "ExportOptions", "ExportResult", "CompileResult", "ExportCancelled", "PAPERS",
-    "export_book", "write_latex", "compile_pdf", "find_xelatex", "safe_stem",
+    "export_book", "write_latex", "compile_pdf", "find_xelatex", "safe_stem", "source_stem",
 ]
 
 Progress = Callable[[str, int, int], None]
@@ -91,6 +91,11 @@ _PT_PER_MM = 72.27 / 25.4
 #: scaling every picture by ``font_size / 12`` keeps them consistent with the
 #: running text whatever point size the reader chose.
 _EPUB_REF_FONT_PT = 12.0
+
+# A bitmap's bounding box is NOT its font size (fractions and subscripts make
+# the box taller). When a publisher omits all size information we may estimate
+# one scale for a series of formula bitmaps, never a separate height per image.
+_FORMULA_HINT = re.compile(r"(?:math|equation|eqn|formula)", re.I)
 
 
 @dataclass
@@ -150,6 +155,25 @@ def safe_stem(name: str, fallback: str = "book") -> str:
                                     *(f"LPT{i}" for i in range(10))}:
         s = "_" + s
     return s or fallback
+
+
+def _output_stem(name: str, fallback: str = "book") -> str:
+    """Keep a supplied filename intact, replacing only unsafe filename characters.
+
+    In particular, do not substitute a metadata title, normalize whitespace, or
+    impose the 80-character limit used for suggested names made from metadata.
+    """
+    s = _BAD_FILE_CHARS.sub(" ", name or "").rstrip(" .")
+    if s.upper().split(".")[0] in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(10)),
+                                    *(f"LPT{i}" for i in range(10))}:
+        s = "_" + s
+    return s or safe_stem(fallback)
+
+
+def source_stem(path: str, fallback: str = "book") -> str:
+    """The complete original filename, with only its last extension removed."""
+    name = os.path.splitext(os.path.basename(os.fspath(path or "")))[0]
+    return _output_stem(name, fallback)
 
 
 def _unique_dir(parent: str, stem: str) -> str:
@@ -260,7 +284,7 @@ _SIMPLE_SEL = re.compile(r"^([a-zA-Z][\w-]*|\*)?((?:[.#][\w-]+)*)$")
 _KEEP_PROPS = {"font-style", "font-weight", "font-variant", "text-align", "display", "font-size",
                "text-decoration", "text-decoration-line", "vertical-align", "page-break-before",
                "break-before", "page-break-after", "break-after", "list-style-type", "list-style",
-               "font-family", "visibility", "width"}
+               "font-family", "visibility", "width", "height", "max-width", "max-height"}
 
 
 def _css_blocks(css: str) -> Iterator[tuple[str, str]]:
@@ -329,10 +353,10 @@ class _Styles:
                 spec = (1 if ident else 0, len(classes), 1 if tag else 0)
                 self._rules.append((spec, len(self._rules), tag, classes, ident, decls))
 
-    def style(self, el: etree._Element, tag: str) -> dict[str, str]:
+    def style(self, el: etree._Element, tag: str, *, source: bool = False) -> dict[str, str]:
         classes = frozenset((el.get("class") or "").split())
         ident = el.get("id")
-        key = (tag, classes, ident)
+        key = (tag, classes, ident, source)
         hit = self._cache.get(key)
         if hit is None:
             matched = [r for r in self._rules
@@ -342,7 +366,7 @@ class _Styles:
             for r in matched:
                 # a bare tag rule never sets a size or alignment for the whole book's body text
                 d = r[5]
-                if r[0] == (0, 0, 1) and tag in ("p", "div", "body", "html", "span"):
+                if not source and r[0] == (0, 0, 1) and tag in ("p", "div", "body", "html", "span"):
                     d = {k: v for k, v in d.items() if k not in ("font-size", "text-align")}
                 hit.update(d)
             self._cache[key] = hit
@@ -846,6 +870,81 @@ def _normalise_image(data: bytes) -> tuple[bytes, str, int, int] | None:
         return None
 
 
+def _formula_ink(data: bytes) -> tuple[int, int, bytearray] | None:
+    """Cheap bounded monochrome/ink check; no connected-component scan."""
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as src:
+            w, h = src.size
+            if not (8 <= h <= 300 and 3 <= w <= 1800 and w * h <= 300_000):
+                return None
+            rgba = src.convert("RGBA")
+            bg = Image.new("RGBA", rgba.size, "white")
+            bg.alpha_composite(rgba)
+            rgb = bg.convert("RGB")
+            # Formula bitmaps are monochrome; do not resize coloured illustrations.
+            small = rgb.copy()
+            small.thumbnail((80, 80))
+            colours = small.tobytes()
+            if sum(max(colours[i:i + 3]) - min(colours[i:i + 3]) > 35
+                   for i in range(0, len(colours), 3)) > small.width * small.height * .02:
+                return None
+            ink = bytearray(rgb.convert("L").point(lambda p: 1 if p < 160 else 0).tobytes())
+        total = sum(ink)
+        if not (.01 * w * h < total < .35 * w * h):
+            return None
+        return w, h, ink
+    except Exception:
+        return None
+
+
+def _glyph_heights(data: bytes) -> list[int]:
+    """Measure connected ink shapes, without recognising/replacing any text.
+
+    Used only to calibrate repeated, unsized formula images. Photographs, solid
+    icons, rules, dots and large diagrams do not provide usable font samples.
+    A bounded pure-Pillow implementation also works in the Android bundle.
+    """
+    try:
+        raster = _formula_ink(data)
+        if raster is None:
+            return []
+        w, h, ink = raster
+        total = sum(ink)
+        heights, text_ink = [], 0
+        for start in range(len(ink)):
+            if not ink[start]:
+                continue
+            ink[start] = 0
+            stack = [start]
+            left = right = start % w
+            top = bottom = start // w
+            count = 0
+            while stack:
+                i = stack.pop()
+                y, x = divmod(i, w)
+                left, right = min(left, x), max(right, x)
+                top, bottom = min(top, y), max(bottom, y)
+                count += 1
+                for ny in range(max(0, y - 1), min(h, y + 2)):
+                    for nx in range(max(0, x - 1), min(w, x + 2)):
+                        j = ny * w + nx
+                        if ink[j]:
+                            ink[j] = 0
+                            stack.append(j)
+            cw, ch = right - left + 1, bottom - top + 1
+            if 6 <= ch <= 80 and 2 <= cw <= 2 * ch and count >= .12 * cw * ch:
+                heights.append(ch)
+                text_ink += count
+        return heights if text_ink >= .5 * total else []
+    except Exception:  # unreadable/non-raster images keep their original size
+        return []
+
+
+def _image_series(path: str) -> str:
+    return re.sub(r"\d+", "#", path.lower())
+
+
 # ==========================================================================
 # the writer
 # ==========================================================================
@@ -969,6 +1068,10 @@ class _Writer:
         self.chapters = 0
         self.cur = ""
         self.esc_map: dict[int, str] = {}
+        self.formula_scales: dict[str, float] = {}   # em per bitmap pixel, by source series
+        self._glyph_cache: dict[str, list[int]] = {}
+        self._formula_candidate_cache: dict[str, bool] = {}
+        self._source_font_cache: dict[etree._Element, float] = {}
 
     # ------------------------------------------------------------------ survey
     def tree(self, doc: str) -> etree._Element:
@@ -1056,6 +1159,74 @@ class _Writer:
         self._find_notes()
         self._map_toc()
         self._decide_docs()
+        self._calibrate_formulas()
+
+    def _image_glyphs(self, path: str) -> list[int]:
+        if path not in self._glyph_cache:
+            try:
+                self._glyph_cache[path] = _glyph_heights(self.book.read(path))
+            except Exception:
+                self._glyph_cache[path] = []
+        return self._glyph_cache[path]
+
+    def _formula_candidate(self, path: str) -> bool:
+        if self._glyph_cache.get(path):
+            return True
+        if path not in self._formula_candidate_cache:
+            try:
+                self._formula_candidate_cache[path] = _formula_ink(self.book.read(path)) is not None
+            except Exception:
+                self._formula_candidate_cache[path] = False
+        return self._formula_candidate_cache[path]
+
+    def _calibrate_formulas(self) -> None:
+        """One scale per publisher's series, learned from ordinary inline glyphs.
+
+        Explicit CSS/HTML dimensions always win. The 80th percentile of glyph
+        heights estimates capitals/ascenders rather than small subscripts. No
+        image is assigned a fixed total height and the pixels are never changed.
+        """
+        samples: dict[str, dict[str, list[int]]] = {}
+        hinted: set[str] = set()
+        for doc in self.docs:
+            _check(self.cancelled)
+            self.cur = doc
+            for el in self.trees[doc].iter():
+                if _local(el) != "img":
+                    continue
+                hint = (el.get("src") or "") + " " + (el.get("class") or "")
+                if self._alone(el) and not _FORMULA_HINT.search(hint):
+                    continue
+                st = self.style(el, "img")
+                if any(v and v != "auto" for v in
+                       (st.get("width"), st.get("height"), el.get("width"), el.get("height"))):
+                    continue
+                target = self.resolve(el.get("src") or "", doc)
+                if not target:
+                    continue
+                path = target[0]
+                series = _image_series(path)
+                group = samples.setdefault(series, {})
+                if len(group) >= 96 or path in group:
+                    continue
+                glyphs = self._image_glyphs(path)
+                if glyphs:
+                    # Bound one long expression's influence on the sample.
+                    group[path] = sorted(glyphs)[::max(1, len(glyphs) // 12)]
+                    if _FORMULA_HINT.search(hint):
+                        hinted.add(series)
+        for series, group in samples.items():
+            heights = sorted(v for values in group.values() for v in values)
+            # Untagged legacy books need many repeated inline text-like bitmaps
+            # before we infer a formula series; a few icons must remain icons.
+            if len(group) < (8 if series in hinted else 24) or len(heights) < 40:
+                continue
+            cap = heights[int(.8 * (len(heights) - 1))]
+            if 8 <= cap <= 64:
+                self.formula_scales[series] = .70 / cap
+                self.warnings.append(
+                    f"formula image scale estimated from {len(group)} text-like samples "
+                    f"({cap}px glyph height): {series}; source has no explicit dimensions")
 
     def _find_notes(self) -> None:
         for doc in self.docs:
@@ -2143,13 +2314,54 @@ class _Writer:
         self.images[zip_name] = got
         return got
 
-    def _css_px(self, el: etree._Element, attr: str) -> float | None:
-        v = (el.get(attr) or "").strip().lower().removesuffix("px")
+    def _source_font_px(self, el: etree._Element | None) -> float:
+        """Inherited CSS font size before the export normalises the body font."""
+        if el is None:
+            return 16.0
+        if el in self._source_font_cache:
+            return self._source_font_cache[el]
+        parent = self._source_font_px(el.getparent())
+        sheet = self.styles.get(self.cur)
+        value = sheet.style(el, _local(el), source=True).get("font-size", "") if sheet else ""
+        size = parent
+        if value in _SIZE_WORDS:
+            size = parent * _SIZE_WORDS[value]
+        else:
+            m = re.fullmatch(r"(\d+(?:\.\d*)?|\.\d+)\s*(px|pt|em|rem|%|ex)", value)
+            if m:
+                n, unit = float(m[1]), m[2]
+                root = el.getroottree().getroot()
+                root_size = self._source_font_px(root) if root is not el else 16.0
+                size = n * {"px": 1, "pt": 4 / 3, "em": parent, "%": parent / 100,
+                            "ex": parent / 2, "rem": root_size}[unit]
+        self._source_font_cache[el] = max(.1, size)
+        return self._source_font_cache[el]
+
+    def _image_length(self, value: str | None, el: etree._Element,
+                      axis: str = "width") -> str | None:
+        """CSS dimensions expressed against the current TeX text size."""
+        if not value:
+            return None
+        m = re.fullmatch(r"\s*(\d+(?:\.\d*)?|\.\d+)\s*(px|pt|pc|in|cm|mm|em|ex|rem|%)?\s*", value.lower())
+        if not m:
+            return None
         try:
-            f = float(v)
-            return f if f > 0 else None
+            n, unit = float(m[1]), m[2] or "px"
         except ValueError:
             return None
+        if n <= 0:
+            return None
+        if unit == "%":
+            return f"{min(n, 100) / 100:.5f}\\linewidth" if axis == "width" else None
+        parent_font = self._source_font_px(el.getparent())
+        if unit in ("em", "ex"):
+            n *= self._source_font_px(el) / parent_font
+            return f"{n:.5f}{unit}"
+        if unit == "rem":
+            return f"{n * self.opt.font_size:.5f}pt"
+        px = n * {"px": 1, "pt": 4 / 3, "pc": 16, "in": 96, "cm": 96 / 2.54,
+                  "mm": 96 / 25.4}[unit]
+        return f"{px / parent_font:.5f}em"
 
     def picture(self, el: etree._Element, zip_name: str, block: bool) -> None:
         got = self.image_file(zip_name)
@@ -2157,23 +2369,22 @@ class _Writer:
             return
         path, w, h = got
         st = self.style(el, _local(el))
-        width = st.get("width", "")
-        opts: str
-        m = re.match(r"^([\d.]+)%$", width)
-        aw = self._css_px(el, "width")
-        ah = self._css_px(el, "height")
-        if m:
-            opts = f"width={min(float(m.group(1)), 100) / 100:.3f}\\linewidth"
-        else:
-            if aw and ah:
-                w, h = aw, ah
-            elif aw and w:
-                h, w = h * aw / w, aw
-            elif ah and h:
-                w, h = w * ah / h, ah
-            opts = f"width={max(1.0, w * self.px2pt):.1f}pt"
-        opts += ",max width=\\linewidth,max height=0.8\\textheight"
-        cmd = f"\\includegraphics[{opts}]{{{path}}}"
+        dimensions = []
+        for axis in ("width", "height"):
+            length = self._image_length(st.get(axis, el.get(axis)), el, axis)
+            if length:
+                dimensions.append(f"{axis}={length}")
+        formula_scale = self.formula_scales.get(_image_series(zip_name))
+        if formula_scale:
+            # Operators can have no letter-sized components; once a series is
+            # calibrated, test ink rather than requiring every image to supply
+            # its own font sample. Sampling order must not change its scale.
+            if not self._formula_candidate(zip_name) or h * formula_scale > 12:
+                formula_scale = None
+        if not dimensions:
+            scale = formula_scale or (1 / self._source_font_px(el.getparent()))
+            dimensions.append(f"width={max(.01, w * scale):.5f}em")
+        cmd = self._bounded_graphic(el, st, path, dimensions)
         if block and self.mode == "normal" and not self.table_depth:
             self.par()
             self.raw("{\\centering ")
@@ -2181,9 +2392,31 @@ class _Writer:
             self.raw(cmd + "\\par}\n")
             self.para_open = False
         else:
+            valign = st.get("vertical-align", "middle" if formula_scale else "baseline")
+            if valign == "middle":
+                cmd = "\\raisebox{\\dimexpr.5ex-.5\\height\\relax}{" + cmd + "}"
+            elif valign in ("text-top", "top"):
+                cmd = "\\raisebox{\\dimexpr.7em-\\height\\relax}{" + cmd + "}"
+            else:
+                shift = self._image_length(valign.lstrip("-"), el, "height")
+                if shift:
+                    cmd = "\\raisebox{" + ("-" if valign.startswith("-") else "") + shift + "}{" + cmd + "}"
             self.start_para()
             self.fresh_para = False
             self.raw(cmd)
+
+    def _bounded_graphic(self, el: etree._Element, st: dict[str, str], path: str,
+                         dimensions: list[str]) -> str:
+        max_width = self._image_length(st.get("max-width"), el)
+        max_height = self._image_length(st.get("max-height"), el, "height")
+        limits = [f"max width={max_width or r'\linewidth'}",
+                  f"max height={max_height or r'0.8\textheight'}"]
+        cmd = f"\\includegraphics[{','.join(dimensions + limits)}]{{{path}}}"
+        # Publisher limits constrain the requested size, then the page constrains
+        # the result. A large CSS max-width must never disable the page boundary.
+        if max_width or max_height:
+            cmd = r"\adjustbox{max width=\linewidth,max height=0.8\textheight}{" + cmd + "}"
+        return cmd
 
     def _alone(self, el: etree._Element) -> bool:
         """Whether a picture stands on its own (no text in its paragraph)."""
@@ -2211,7 +2444,7 @@ class _Writer:
             for im in images:
                 tgt = self.resolve(_href(im) or "", self.cur)
                 if tgt and self.book.has(tgt[0]):
-                    self.picture(el, tgt[0], True)
+                    self.picture(el, tgt[0], self._alone(el))
             return
         if self.mode == "heading":
             return
@@ -2228,9 +2461,18 @@ class _Writer:
         os.makedirs(os.path.join(self.folder, "images"), exist_ok=True)
         with open(os.path.join(self.folder, "images", name), "wb") as f:
             f.write(blob)
-        cmd = (f"\\includegraphics[width={max(1.0, w * self.px2pt):.1f}pt,max width=\\linewidth,"
-               f"max height=0.8\\textheight]{{images/{name}}}")
+        st = self.style(el, tag)
+        dimensions = []
+        for axis in ("width", "height"):
+            length = self._image_length(st.get(axis, el.get(axis)), el, axis)
+            if length:
+                dimensions.append(f"{axis}={length}")
+        if not dimensions:
+            dimensions.append(f"width={max(.01, w / self._source_font_px(el.getparent())):.5f}em")
+        cmd = self._bounded_graphic(el, st, f"images/{name}", dimensions)
         if self.table_depth or not self._alone(el):
+            if st.get("vertical-align") == "middle":
+                cmd = "\\raisebox{\\dimexpr.5ex-.5\\height\\relax}{" + cmd + "}"
             self.start_para()
             self.fresh_para = False
             self.raw(cmd)
@@ -2328,6 +2570,24 @@ class _Writer:
             avail *= 0.9
         total = sum(weights)
         widths = [max(18.0, avail * w / total) for w in weights]
+        # Some publishers use a two-cell math table solely to position an
+        # equation number. Counting text treats the bitmap as an empty cell and
+        # gives its number more space than the equation, shrinking its glyphs.
+        # Limit this override to explicitly marked, unspanned math layouts.
+        labels: list[str] = []
+        if ncols == 2 and _FORMULA_HINT.search(el.get("class") or ""):
+            for row in rows:
+                if len(row) != 2 or any(c is None or span != 1 or head for c, span, head in row):
+                    break
+                equation, number = row[0][0], row[1][0]
+                label = unicodedata.normalize("NFKC", "".join(number.itertext())).strip()
+                if not (any(_local(c) in ("img", "svg", "math") for c in equation.iter())
+                        and len(label) <= 16 and re.fullmatch(r"\(\d+(?:[.\-]\d+)*[a-z]?\)", label)):
+                    break
+                labels.append(label)
+            if len(labels) == len(rows):
+                number_width = min(avail * .25, max(24.0, self.opt.font_size * .6 * (max(map(len, labels)) + 1)))
+                widths = [avail - number_width, number_width]
         env = "tabular" if nested else "longtable"
         self.par()
         if caption is not None:
@@ -2566,8 +2826,8 @@ def export_book(book: EpubBook, destination: str, options: ExportOptions | None 
     """
     options = options or ExportOptions()
     md = book.metadata or {}
-    stem = safe_stem(stem or str(md.get("title") or "") or
-                     os.path.splitext(os.path.basename(book.path or "book"))[0])
+    stem = (_output_stem(stem) if stem else
+            source_stem(book.path, fallback=str(md.get("title") or "book")))
     os.makedirs(destination, exist_ok=True)
     folder = _unique_dir(destination, stem)
     os.makedirs(folder)

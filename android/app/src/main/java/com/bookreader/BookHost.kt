@@ -45,9 +45,12 @@ class BookHost(private val context: Context, private val webView: WebView) {
         fun onLink(zip: String, fragment: String, url: String?) {}
         /** console-ish text from the page. */
         fun onLog(message: String) {}
+        fun onReaderCommand(command: String) {}
     }
 
     var listener: Listener? = null
+    val fontLibrary = FontLibrary(context)
+    fun fontCss(): String = fontLibrary.css()
 
     private var bookHost = DEFAULT_HOST
     private var bookOpen = false
@@ -110,6 +113,9 @@ class BookHost(private val context: Context, private val webView: WebView) {
         if (!bookOpen) return null
         val zipName = path.removePrefix("/")
         if (zipName.isEmpty()) return null
+        if (zipName.startsWith("__er_fonts/")) {
+            return fontLibrary.serve(zipName.removePrefix("__er_fonts/"))
+        }
         val module = py()
         val entry = run {
             // Try to resolve relative/encoded hrefs the way the desktop does.
@@ -145,8 +151,16 @@ class BookHost(private val context: Context, private val webView: WebView) {
     // ------------------------------------------------------------------
     /** Wire the WebView up.  Call once before any loadUrl. */
     fun install() {
+        if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         val s = webView.settings
         s.javaScriptEnabled = true
+        // The reader's font slider is the single size control. Android inherits
+        // the system font_scale as textZoom (75% on the verified phone), which
+        // shrinks glyphs but leaves em-sized image geometry unchanged. Pin the
+        // WebView text zoom so formula glyphs and surrounding text share 1 em.
+        s.textZoom = 100
         s.domStorageEnabled = false                 // books must not persist anything
         s.allowFileAccess = false
         s.allowContentAccess = false
@@ -214,6 +228,7 @@ class BookHost(private val context: Context, private val webView: WebView) {
             "positionChanged" -> msg.optJSONObject("payload")?.let { listener?.onPosition(it) }
             "linkClicked" -> onLinkClicked(msg.opt("payload")?.toString() ?: "")
             "log" -> listener?.onLog(msg.opt("payload")?.toString() ?: "")
+            "keyUnhandled" -> listener?.onReaderCommand(msg.opt("payload")?.toString() ?: "")
         }
     }
 
@@ -239,7 +254,7 @@ class BookHost(private val context: Context, private val webView: WebView) {
     /** JS → host `epubReaderHost` facade + reader.js, injected at document start. */
     private fun injectBoot() {
         val readerJs = context.assets.open("assets/reader.js").bufferedReader().use { it.readText() }
-        val readerCss = context.assets.open("assets/reader.css").bufferedReader().use { it.readText() }
+        val readerCss = context.assets.open("assets/reader.css").bufferedReader().use { it.readText() } + fontCss()
         // reader.css must reach the page as a <style> element: it is what turns the
         // --er-fs / --er-ff / --er-* custom properties reader.js sets on :root into
         // actual font-size / font-family / colours.  Without it the settings do

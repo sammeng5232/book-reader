@@ -58,11 +58,13 @@ class ConvertDialog(QDialog):
     """Where to save, and how to lay out the pages."""
 
     def __init__(self, parent: QWidget | None, *, title: str, source_format: str, destination: str,
-                 store: Any = None, engine: str | None = None) -> None:
+                 store: Any = None, engine: str | None = None,
+                 source_path: str | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("ConvertDialog")
         self._store = store
         self._title = title
+        self._stem = latexexport.source_stem(source_path) if source_path else latexexport.safe_stem(title)
         self._djvu = _is_djvu(source_format)
         self._engine = engine
         self.setWindowTitle(S("convert.title"))
@@ -151,7 +153,7 @@ class ConvertDialog(QDialog):
 
     def target_path(self) -> str:
         """What will be created: a folder (LaTeX) or a PDF file (DjVu)."""
-        stem = latexexport.safe_stem(self._title)
+        stem = self._stem
         dest = self.destination()
         if self._djvu:
             return _unique_file(dest, stem, ".pdf")
@@ -267,7 +269,7 @@ class ConvertJob(QObject):
         import djvupdf
         try:
             if self.djvu:
-                out = _unique_file(self.destination, latexexport.safe_stem(self.title), ".pdf")
+                out = _unique_file(self.destination, latexexport.source_stem(self.path), ".pdf")
                 stats = djvupdf.convert_djvu_to_pdf(
                     self.path, out, title=self.title, cancelled=self._stop.is_set,
                     progress=lambda d, t: self._progress("pages", d, t))
@@ -279,7 +281,7 @@ class ConvertJob(QObject):
                 try:
                     res = latexexport.export_book(book, self.destination, self.options, progress=self._progress,
                                                   cancelled=self._stop.is_set, engine=self.engine,
-                                                  stem=self.title)
+                                                  stem=latexexport.source_stem(self.path))
                 finally:
                     book.close()
                 self.result = {"kind": "latex", "folder": res.folder, "tex": res.tex_path, "pdf": res.pdf_path,
@@ -351,7 +353,7 @@ def start_conversion(parent: QWidget, *, path: str, title: str, source_format: s
     djvu = _is_djvu(source_format)
     engine = None if djvu else latexexport.find_xelatex()
     dlg = ConvertDialog(parent, title=title, source_format=source_format or "", engine=engine,
-                        destination=default_destination(path, store), store=store)
+                        destination=default_destination(path, store), store=store, source_path=path)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None
     job = ConvertJob(path=path, source_format=source_format or "", destination=dlg.destination(), title=title,

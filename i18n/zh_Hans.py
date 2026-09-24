@@ -238,7 +238,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "这本书是竖排版式，已改为滚动阅读",
     "status.link.missing": "链接指向的内容不在这本书中",
     "status.save_failed": "暂时无法保存阅读记录，稍后会自动重试",
-    "status.drop.unsupported": "只能打开 EPUB、MOBI、AZW3 和 DjVu 文件",
+    "status.drop.unsupported": "只能打开 EPUB、MOBI、AZW3、DjVu 和 PDF 文件",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "不到 1 分钟",
@@ -461,7 +461,7 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "打开书籍",
-    "dlg.open.filter": "电子书 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
+    "dlg.open.filter": "电子书 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv *.pdf);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv);;PDF (*.pdf)",
     "dlg.all_files": "所有文件 (*)",
     "dlg.folder.title": "选择文件夹",
     "dlg.relocate.title": "重新定位《{title}》",
@@ -486,7 +486,7 @@ TABLE: dict[str, str] = {
     "err.access.title": "无法读取这个文件",
     "err.access.body": "文件可能正被其他程序占用，或者不允许读取。",
     "err.unsupported.title": "暂不支持这种格式",
-    "err.unsupported.body": "{app} 可以打开 EPUB、MOBI、AZW3 和 DjVu 文件。这个文件使用的格式（例如 Kindle 的 KFX 或 Topaz）暂不支持。",
+    "err.unsupported.body": "{app} 可以打开 EPUB、MOBI、AZW3、DjVu 和 PDF 文件。这个文件使用的格式（例如 Kindle 的 KFX 或 Topaz）暂不支持。",
     "err.unexpected.body": "打开时发生了意外错误，技术细节中有具体原因。",
     "err.section": "本节内容无法显示",
     "err.details": "技术细节",
@@ -507,7 +507,7 @@ TABLE: dict[str, str] = {
 
     # ---- command line ----
     "cli.usage": "用法：{exe} [电子书文件]",
-    "cli.description": "打开 EPUB、MOBI、AZW3 或 DjVu 电子书；不带参数时显示书架。",
+    "cli.description": "打开 EPUB、MOBI、AZW3、DjVu 或 PDF 电子书；不带参数时显示书架。",
     "cli.help": "显示此帮助并退出",
     "cli.not_found": "找不到文件：{path}",
 
@@ -564,6 +564,11 @@ TABLE: dict[str, str] = {
     "tabs.new": "新建标签页（打开书架）",
     "tabs.close": "关闭标签页",
     "tabs.close_others": "关闭其他标签页",
+    "tabs.move_to_new_window": "移动到新窗口",
+    "tabs.move_to_window": "移动标签到窗口",
+    "status.pdf_page": "第 {page} / {pages} 页",
+    "err.pdf_password.title": "这个 PDF 需要密码",
+    "err.pdf_password.body": "请打开已解锁的 PDF 副本。本阅读器暂不提供密码输入功能。",
     "keys.lib_move": "移动选择",
     "keys.lib_open": "打开所选书籍",
     "keys.lib_focus_search": "聚焦搜索框",

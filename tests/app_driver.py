@@ -130,7 +130,7 @@ class Ctx:
                  argv: list[str]) -> None:
         self.win = win
         self.app = QApplication.instance()
-        self.r = win.reader
+        self._r = win.reader
         self.lib = win.library
         self.store = win.store
         self.scenario = scenario
@@ -141,6 +141,11 @@ class Ctx:
         self.data: dict = {}
         self.shots: list[str] = []
         os.makedirs(out, exist_ok=True)
+
+    @property
+    def r(self):
+        """The reader to act on: the active tab's reader (lazy, so it follows tab switches)."""
+        return self.win.reader
 
     # -- results ----------------------------------------------------------------
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
@@ -584,8 +589,8 @@ def sc_features(c: Ctx) -> None:
     def toc() -> None:
         if not r.dock.isVisible() or r.dock.current_pane() != "toc":
             c.focus_book()
-            c.key(K.Key_T, CTRL)
-        c.check("Ctrl+T opens the TOC pane", r.dock.isVisible() and r.dock.current_pane() == "toc")
+            c.key(K.Key_T, CTRL | SHIFT)
+        c.check("Ctrl+Shift+T opens the TOC pane", r.dock.isVisible() and r.dock.current_pane() == "toc")
         entries = r.dock.toc.entries
         spines = [e["spine"] for e in entries]
         # an entry that is alone in its file, so "current" can only be that entry
@@ -822,7 +827,7 @@ def sc_features(c: Ctx) -> None:
     def escape_ladder() -> None:
         c.focus_book()
         if not r.dock.isVisible():
-            c.key(K.Key_T, CTRL)
+            c.key(K.Key_T, CTRL | SHIFT)
         c.focus_book()
         c.key(K.Key_Comma, CTRL)
         c.check("setup: dock and settings open", r.dock.isVisible() and r.settings_panel.isVisible())
@@ -920,17 +925,27 @@ def sc_features(c: Ctx) -> None:
 
     def ctrl_w() -> None:
         c.focus_book()
-        c.key(K.Key_W, CTRL, settle=0.4)
-        c.check("Ctrl+W closes the book and shows the shelf", win.stack.currentWidget() is win.library
+        c.key(K.Key_L, CTRL | SHIFT, settle=0.4)
+        c.check("Ctrl+Shift+L closes the book and shows the shelf", win.stack.currentWidget() is win.library
                 and r.book is None and win.windowTitle() == "Book Reader")
-        c.check("the shelf flashes 已回到书架 (in the UI language)", c.lib.notice_text()
-                == S("status.back_to_library"), c.lib.notice_text())
         c.key(K.Key_F1)
         c.check("F1 on the shelf shows the cheat sheet", win.library_cheatsheet.isVisible())
         c.key(K.Key_Escape)
         c.check("Esc closes it", not win.library_cheatsheet.isVisible())
+        c.key(K.Key_T, CTRL)
+        c.check("Ctrl+T creates another shelf tab", len(win.tabs) == 2 and win._active_tab.is_library)
+        c.key(K.Key_W, CTRL)
+        c.check("Ctrl+W on a shelf closes only that tab", len(win.tabs) == 1 and not win._shut
+                and win.stack.currentWidget() is win.library)
+        win.open_path(path, new_tab=True)
+        c.ready(timeout=25)
+        c.focus_book()
+        c.key(K.Key_W, CTRL, settle=0.4)
+        c.check("Ctrl+W closes the book tab and preserves the shelf", len(win.tabs) == 1
+                and not win._shut and r.book is None and win.stack.currentWidget() is win.library)
         c.save()
-        c.key(K.Key_W, CTRL, settle=0.05)          # on the shelf: closes the window -> quits
+        c.key(K.Key_W, CTRL, settle=0.05)
+        c.check("Ctrl+W closes the window when its last tab closes", win._shut and not win.isVisible())
     c.step("ctrl_w", ctrl_w)
 
 

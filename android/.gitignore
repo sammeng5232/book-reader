@@ -5,3 +5,14 @@ local.properties
 app/src/main/jniLibs/
 app/src/main/assets/texbundle/
 .cxx/
+
+# Isolated local validation build outputs.
+build-codex/
+app/build-codex/
+
+.kotlin/
+build-reading-*/
+app/build-reading-*/
+
+build-font-*/
+app/build-font-*/

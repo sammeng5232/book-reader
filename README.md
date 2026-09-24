@@ -1,6 +1,6 @@
 # Book Reader
 
-A Windows desktop e-book reader for **EPUB, Kindle (MOBI / AZW / AZW3) and DjVu**, written from
+A Windows desktop e-book reader for **EPUB, Kindle (MOBI / AZW / AZW3), DjVu and PDF**, written from
 scratch: no third-party e-book library or decoder, nothing downloaded. Python 3.14 + PySide6 (Qt 6.11)
 with Chromium (QtWebEngine) rendering the pages, so a book's own CSS, fonts and images display the way
 the publisher intended.
@@ -15,6 +15,8 @@ the publisher intended.
     BZZ, the Z'-coder), written in C# and compiled on first use with the compiler built into Windows.
     Scanned pages appear as fixed-layout pages with their OCR text laid invisibly over them, so search,
     selection, copying and highlights work on scans too. A DjVu outline becomes the contents list.
+  - **PDF**: open directly from the file dialog, drag and drop, or a command-line path;
+    supports page navigation, contents, bookmarks and search. Scanned PDFs do not gain OCR.
 - **Opens real-world books**, including the awkward ones: EPUB 2 (NCX) and EPUB 3 (nav), Chinese text
   without mojibake, font obfuscation (not mistaken for DRM), hexadecimal NCX `playOrder`, broken XHTML,
   percent-encoded or Chinese file names inside the zip, fixed-layout books (scaled to fit).
@@ -28,13 +30,15 @@ the publisher intended.
   Books stay where they are. The app never copies, moves or deletes your files.
 - **Interface language**: 简体中文 / 繁體中文 / English / 日本語, switchable live in settings (or follow Windows).
 - **Convert to LaTeX and PDF** (reader "…" menu, or right-click a book in the library):
-  - EPUB, MOBI, AZW, AZW3 become an editable LaTeX project (`<title>.tex` plus `images\`) and a PDF typeset
+  - EPUB, MOBI, AZW, AZW3 become an editable LaTeX project (`<source-filename-stem>.tex` plus `images\`) and a PDF typeset
     with XeLaTeX: chapters and contents from the book's own table of contents, footnotes, tables, lists,
     pictures, links, ruby. Chinese uses `ctexbook`, Japanese/Korean xeCJK; fonts are picked by checking which
     installed font actually has every character. Page size (A5, A4, B5, Letter, 6×9 in) and text size are
     chosen in the dialog. The PDF needs XeLaTeX (MiKTeX or TeX Live); without it the `.tex` is still written.
   - DjVu becomes a PDF directly (no LaTeX): the scan's layers are kept (Group 4 text masks over JPEG
     backgrounds) and the OCR text is laid invisibly over each page, so the PDF can be searched and copied.
+  - Export names preserve the original filename stem, including underscores, author suffixes and Unicode.
+    Image formulas scale with the selected text size while retaining their aspect ratio.
   - TeX runs in a private temporary folder, so no `.aux`/`.log`/`.out` files are left next to the output.
 
 ## Android
@@ -50,11 +54,23 @@ public `Downloads/Book Reader/` folder so a file manager can find them.  The Pyt
 modules are shared with this project rather than rewritten.  Build instructions and the
 emulator recipe are in [android/README.md](android/README.md).
 
+Android also opens **PDF directly**, with continuous scrolling, zoom, page-number input,
+a fast page slider and reading-position restoration. DjVu has a visible menu, contents
+panel and direct page navigation; books without an embedded outline show a no-contents
+message. EPUB supports inertial scrolling and formula images that follow the reading font size.
+
+Phone typography has searchable, independent font choices for Latin, Simplified Chinese,
+Traditional Chinese, Japanese and Korean. A personal font library can supplement the
+bundled fonts; the configured phone library currently has 291 named families and 523 faces.
+These locally supplied Windows/Office fonts are **not bundled in the general APK**;
+the available list depends on the library installed on each phone. Desktop font choices
+remain unchanged.
+
 ## Run
 
 ```powershell
 .\run.ps1                          # opens the library
-.\run.ps1 "D:\Books\some book.epub" # opens a book (.epub .mobi .azw3 .azw .prc .djvu .djv)
+.\run.ps1 "D:\Books\some book.epub" # opens a book (.epub .mobi .azw3 .azw .prc .djvu .djv .pdf)
 ```
 
 Or, once built, double-click `dist\Book Reader\Book Reader.exe`.
@@ -117,7 +133,14 @@ Press **F1** in the app for the full list. The most useful ones:
 Tabs and windows work like a browser: every window has its own tab strip, a
 book opened from the shelf navigates the current tab, a second launch or a
 drop adds a tab, and the whole session — every window, every tab — comes back
-on the next start.
+on the next start. Tabs can be reordered and moved between windows.
+
+Each book tab uses its **original filename including the extension**, for example
+`Arbitrage Thy in Ctus Time_Björk.epub`, rather than the title embedded in the book.
+Long names are visually shortened with an ellipsis to fit the existing tab width;
+hover over the tab to see the full filename and extension. The window title can
+still use the book's metadata title. This also applies after moving a tab or
+restoring a saved session.
 
 ## Tests
 

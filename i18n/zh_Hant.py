@@ -243,7 +243,7 @@ TABLE: dict[str, str] = {
     "status.vertical": "這本書採用直排，已改用捲動模式閱讀",
     "status.link.missing": "連結指向的內容不在這本書中",
     "status.save_failed": "暫時無法儲存閱讀紀錄，稍後會自動重試",
-    "status.drop.unsupported": "只能開啟 EPUB、MOBI、AZW3 和 DjVu 檔案",
+    "status.drop.unsupported": "只能開啟 EPUB、MOBI、AZW3、DjVu 和 PDF 檔案",
 
     # ---- durations (strings.duration builds these) ----
     "time.lt_minute": "不到 1 分鐘",
@@ -466,7 +466,7 @@ TABLE: dict[str, str] = {
 
     # ---- file dialogs ----
     "dlg.open.title": "開啟書籍",
-    "dlg.open.filter": "電子書 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv)",
+    "dlg.open.filter": "電子書 (*.epub *.mobi *.azw3 *.azw *.prc *.djvu *.djv *.pdf);;EPUB (*.epub);;Kindle (*.mobi *.azw3 *.azw *.prc);;DjVu (*.djvu *.djv);;PDF (*.pdf)",
     "dlg.all_files": "所有檔案 (*)",
     "dlg.folder.title": "選擇資料夾",
     "dlg.relocate.title": "重新指定《{title}》的位置",
@@ -491,7 +491,7 @@ TABLE: dict[str, str] = {
     "err.access.title": "無法讀取這個檔案",
     "err.access.body": "檔案可能正由其他程式使用，或沒有讀取權限。",
     "err.unsupported.title": "尚不支援這種格式",
-    "err.unsupported.body": "{app} 可以開啟 EPUB、MOBI、AZW3 和 DjVu 檔案。這個檔案使用的格式（例如 Kindle 的 KFX 或 Topaz）尚不支援。",
+    "err.unsupported.body": "{app} 可以開啟 EPUB、MOBI、AZW3、DjVu 和 PDF 檔案。這個檔案使用的格式（例如 Kindle 的 KFX 或 Topaz）尚不支援。",
     "err.unexpected.body": "開啟時發生未預期的錯誤，原因請見技術細節。",
     "err.section": "本節內容無法顯示",
     "err.details": "技術細節",
@@ -512,7 +512,7 @@ TABLE: dict[str, str] = {
 
     # ---- command line ----
     "cli.usage": "用法：{exe} [電子書檔案]",
-    "cli.description": "開啟 EPUB、MOBI、AZW3 或 DjVu 電子書；未指定檔案時顯示書架。",
+    "cli.description": "開啟 EPUB、MOBI、AZW3、DjVu 或 PDF 電子書；未指定檔案時顯示書架。",
     "cli.help": "顯示此說明並結束",
     "cli.not_found": "找不到檔案：{path}",
 
@@ -569,6 +569,11 @@ TABLE: dict[str, str] = {
     "tabs.new": "新增標籤頁（開啟書架）",
     "tabs.close": "關閉標籤頁",
     "tabs.close_others": "關閉其他標籤頁",
+    "tabs.move_to_new_window": "移到新視窗",
+    "tabs.move_to_window": "移動分頁至視窗",
+    "status.pdf_page": "第 {page} / {pages} 頁",
+    "err.pdf_password.title": "這個 PDF 需要密碼",
+    "err.pdf_password.body": "請開啟已解鎖的 PDF 副本。本閱讀器尚未提供密碼輸入功能。",
     "keys.lib_move": "移動選取項目",
     "keys.lib_open": "開啟選取的書籍",
     "keys.lib_focus_search": "移至搜尋方塊",

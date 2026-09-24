@@ -154,7 +154,7 @@ class MainActivity : AppCompatActivity() {
 
         say(getString(R.string.engine_ready, TexEngine.version()))
         refreshRecent()
-        handleAutorun(intent)
+        if (savedInstanceState == null) routeOpenIntent(intent)
     }
 
     override fun onResume() {
@@ -165,23 +165,61 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleAutorun(intent)
+        routeOpenIntent(intent)
     }
 
     // --------------------------------------------------------------
     // Import: SAF uri -> a real file the app owns
     // --------------------------------------------------------------
     private fun importBook(uri: Uri): File? {
+        var temporary: File? = null
         return runCatching {
-            val name = displayName(uri) ?: "book"
-            val dir = File(filesDir, "books").apply { mkdirs() }
-            val dest = File(dir, name)
+            var name = (displayName(uri) ?: "book").substringAfterLast('/').substringAfterLast('\\')
+                .filter { it >= ' ' && it != '\u007f' }.takeIf { it != "." && it != ".." && it.isNotBlank() } ?: "book"
+            if (contentResolver.getType(uri) == "application/pdf" && !name.endsWith(".pdf", ignoreCase = true)) name += ".pdf"
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val stage = File.createTempFile("book-import-", ".part", cacheDir).also { temporary = it }
             contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { input.copyTo(it) }
-            } ?: return null
+                java.security.DigestInputStream(input, digest).use { source ->
+                    stage.outputStream().use { source.copyTo(it) }
+                }
+            } ?: error("Could not open the selected file")
+            // A different book with the same display name must not replace an
+            // earlier import. Keep its original basename inside a content folder.
+            val key = digest.digest().joinToString("") { "%02x".format(it) }.take(32)
+            val dir = File(filesDir, "books/imports/$key").apply { mkdirs() }
+            val dest = File(dir, name)
+            if (!dest.isFile) {
+                if (!stage.renameTo(dest)) stage.copyTo(dest, overwrite = false)
+            }
             dest
-        }.onFailure { Log.w("BookReader", "import failed", it) }.getOrNull()
+        }.onFailure { Log.w("BookReader", "import failed", it) }.getOrNull().also { temporary?.delete() }
     }
+
+    private fun routeOpenIntent(incoming: Intent?) {
+        if (incoming?.action == Intent.ACTION_VIEW && incoming.data != null) {
+            val uri = incoming.data!!
+            if (uri.scheme !in setOf("content", "file")) {
+                say("Please choose a local book or PDF file.")
+                return
+            }
+            setBusy(true)
+            thread {
+                val file = importBook(uri)
+                runOnUiThread {
+                    setBusy(false)
+                    if (file == null) say("Could not read that file.") else openBook(file)
+                }
+            }
+        } else handleAutorun(incoming)
+    }
+
+    private fun isPdf(file: File): Boolean = file.extension.equals("pdf", ignoreCase = true) || runCatching {
+        file.inputStream().use { input ->
+            val signature = ByteArray(5)
+            input.read(signature) == 5 && signature.contentEquals("%PDF-".toByteArray(Charsets.US_ASCII))
+        }
+    }.getOrDefault(false)
 
     private fun displayName(uri: Uri): String? {
         runCatching {
@@ -199,6 +237,10 @@ class MainActivity : AppCompatActivity() {
     private fun openBook(file: File) {
         val spine = intent.getIntExtra("spine", 0)
         addRecent(file.absolutePath)
+        if (isPdf(file)) {
+            PdfReaderActivity.open(this, file.absolutePath, file.nameWithoutExtension)
+            return
+        }
         when (file.extension.lowercase()) {
             // DjVu is decoded directly by the Kotlin decoder — no conversion needed.
             "djvu", "djv" -> DjvuReaderActivity.open(this, file.absolutePath)
@@ -214,10 +256,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun convertBook(file: File) {
+        if (isPdf(file)) {
+            openBook(file)
+            return
+        }
         // Convert into a private temp folder, then copy the results into the public
         // Downloads/Book Reader folder so the user can find them in any file manager
         // (Android/data is hidden from file managers).
-        val work = File(cacheDir, "convert-out").apply { deleteRecursively(); mkdirs() }
+        val work = File(cacheDir, "convert-out/${System.currentTimeMillis()}").apply { mkdirs() }
         say("Converting ${file.name}…")
         setBusy(true)
         lastStage = ""
@@ -242,7 +288,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Converter.convertBook(this, file.absolutePath, work, listener = progressListener())
             }
-            val seconds = (System.currentTimeMillis() - started) / 1000.0
+            val conversionSeconds = (System.currentTimeMillis() - started) / 1000.0
             val ok = result.optBoolean("ok")
             // "ok" only means the pipeline ran.  A missing pdf with ok=true is the
             // typesetter failing; its errors come back in "problems" and must be
@@ -251,13 +297,22 @@ class MainActivity : AppCompatActivity() {
             val problems = result.optJSONArray("problems")?.let { ja ->
                 (0 until ja.length()).mapNotNull { ja.optString(it).ifEmpty { null } }
             } ?: emptyList()
-            // move every produced file to Downloads/Book Reader
-            val saved = if (ok) publishResults(work) else emptyList()
-            val savedList = if (saved.isEmpty()) "" else buildString {
+            // Report the engine before copying thousands of images to MediaStore.
+            // A failed compile must not be hidden behind a long "Typesetting" timer.
+            Log.i("BookReader", "engine result: ok=$ok pages=${result.optInt("pages")} " +
+                    "pdf=${pdfPath ?: "none"} seconds=$conversionSeconds")
+            if (problems.isNotEmpty()) Log.w("BookReader", "engine problems: ${problems.joinToString(" | ")}")
+            if (!ok) Log.e("BookReader", "conversion failed: ${result.optString("error")}")
+            val published = if (ok) publishResults(work, file.nameWithoutExtension) else PublishedResults()
+            val saved = published.saved
+            val seconds = (System.currentTimeMillis() - started) / 1000.0
+            Log.i("BookReader", "export result: saved=${saved.size} failed=${published.failed.size} seconds=$seconds")
+            val savedList = (if (saved.isEmpty()) "" else buildString {
                 append("\nSaved to Downloads/Book Reader:")
                 for (name in saved.take(12)) append("\n  $name")
                 if (saved.size > 12) append("\n  … and ${saved.size - 12} more")
-            }
+            }) + if (published.failed.isEmpty()) "" else
+                "\n${published.failed.size} files could not be saved. Local copies kept at ${work.absolutePath}."
             runOnUiThread {
                 setBusy(false)
                 hideProgress()
@@ -298,69 +353,121 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Copy every file the converter produced under [work] into the public
-     * `Downloads/Book Reader/` folder via MediaStore (no permission needed),
-     * keeping the converter's folder layout (`<title>/<title>.tex`,
-     * `<title>/images/…`) so the .tex still finds its pictures when it is
-     * compiled elsewhere.  Returns the published relative paths.  The private
-     * copies are deleted afterwards.
-     */
-    private fun publishResults(work: File): List<String> {
+    private data class PublishedResults(
+        val saved: List<String> = emptyList(),
+        val failed: List<String> = emptyList(),
+    )
+
+    /** Publish one complete export without deleting or renaming earlier exports. */
+    private fun publishResults(work: File, sourceStem: String): PublishedResults {
         val saved = ArrayList<String>()
-        val files = work.walkTopDown().filter { it.isFile }.toList()
+        val failed = ArrayList<String>()
+        val exportRoot = work.listFiles()?.singleOrNull()?.takeIf { it.isDirectory } ?: work
+        val originalFolder = if (exportRoot == work) sourceStem else exportRoot.name
+        val files = exportRoot.walkTopDown().filter { it.isFile }.sortedWith(
+            compareBy<File> { when (it.extension.lowercase()) { "pdf" -> 0; "tex" -> 1; else -> 2 } }
+                .thenBy { it.relativeTo(exportRoot).invariantSeparatorsPath }
+        ).toList()
         val store = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
         val colRel = android.provider.MediaStore.MediaColumns.RELATIVE_PATH
         val colName = android.provider.MediaStore.MediaColumns.DISPLAY_NAME
+        val colPending = android.provider.MediaStore.MediaColumns.IS_PENDING
+        val downloads = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+        val publicRoot = File(downloads, "Book Reader")
+        // Choose once per export, so filenames and relative image links remain exact.
+        // Directory stat also sees folders left by a previous installation.
+        var folder = originalFolder
+        var suffix = 2
+        while (File(publicRoot, folder).exists()) folder = "$originalFolder (${suffix++})"
+        var relativeRoot = "Download/Book Reader/$folder"
+        val listener = progressListener()
+        listener.onProgress("save", 0, files.size)
         val colId = android.provider.BaseColumns._ID
-        for (f in files) {
-            val rel = f.relativeTo(work).path.replace(File.separatorChar, '/')
-            val dir = rel.substringBeforeLast('/', "")
-            runCatching {
-                val values = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, f.name)
-                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH,
-                        if (dir.isEmpty()) "Download/Book Reader" else "Download/Book Reader/$dir")
-                    put(android.provider.MediaStore.Downloads.MIME_TYPE,
-                        if (f.extension.lowercase() == "pdf") "application/pdf" else "application/octet-stream")
+        fun publishBatch(batch: List<File>, startIndex: Int) {
+            val created = ArrayList<Uri>()
+            val ready = ArrayList<Pair<File, Uri>>()
+            try {
+                val inserts = ArrayList<android.content.ContentProviderOperation>()
+                for (f in batch) {
+                    val rel = f.relativeTo(exportRoot).invariantSeparatorsPath
+                    val dir = rel.substringBeforeLast('/', "")
+                    val values = android.content.ContentValues().apply {
+                        put(colName, f.name)
+                        put(colRel, if (dir.isEmpty()) relativeRoot else "$relativeRoot/$dir")
+                        put(colPending, 1)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE,
+                            if (f.extension.equals("pdf", true)) "application/pdf" else "application/octet-stream")
+                    }
+                    inserts.add(android.content.ContentProviderOperation.newInsert(store).withValues(values).build())
                 }
-                val uri = contentResolver.insert(store, values)
-                    ?: throw java.io.IOException("MediaStore refused ${f.name}")
-                contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
-                // MediaStore never replaces: a taken name silently becomes "name (1)"
-                // (or, under load, a "folder (2)").  Detect the rename and take the
-                // name back: free it, then rename our fresh file into place.
-                val got = contentResolver.query(uri, arrayOf(colName), null, null, null)
-                    ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-                if (got != null && got != f.name) {
-                    val base = if (dir.isEmpty()) "Download/Book Reader" else "Download/Book Reader/$dir"
-                    contentResolver.query(store, arrayOf(colId),
-                        "($colRel=? OR $colRel=?) AND $colName=?", arrayOf(base, "$base/", f.name), null)
-                        ?.use { c ->
-                            val ids = ArrayList<Long>()
-                            while (c.moveToNext()) ids.add(c.getLong(0))
-                            for (id in ids) contentResolver.delete(
-                                android.net.Uri.withAppendedPath(store, id.toString()), null, null)
+                val results = contentResolver.applyBatch(android.provider.MediaStore.AUTHORITY, inserts)
+                for (result in results) created.add(result.uri ?: throw java.io.IOException("MediaStore refused an output file"))
+                if (created.size != batch.size) throw java.io.IOException("MediaStore returned an incomplete batch")
+                val ids = created.map { android.content.ContentUris.parseId(it) }
+                val metadata = HashMap<Long, Pair<String, String>>()
+                @Suppress("DEPRECATION")
+                val pendingStore = android.provider.MediaStore.setIncludePending(store)
+                contentResolver.query(pendingStore, arrayOf(colId, colName, colRel),
+                    "$colId IN (${ids.joinToString(",") { "?" }})", ids.map { it.toString() }.toTypedArray(), null)?.use { c ->
+                    while (c.moveToNext()) metadata[c.getLong(0)] = c.getString(1) to c.getString(2).trimEnd('/')
+                } ?: throw java.io.IOException("Cannot verify output filenames")
+                for ((offset, f) in batch.withIndex()) {
+                    val index = startIndex + offset
+                    val rel = f.relativeTo(exportRoot).invariantSeparatorsPath
+                    val dir = rel.substringBeforeLast('/', "")
+                    val uri = created[offset]
+                    try {
+                        val actual = metadata[ids[offset]] ?: throw java.io.IOException("Cannot verify ${f.name}")
+                        if (actual.first != f.name) throw java.io.IOException("Destination name is already in use: ${f.name}")
+                        // The first file reserves the export's directory. Preserve
+                        // a folder adjustment made by MediaStore for every image.
+                        if (index == 0 && dir.isEmpty()) {
+                            relativeRoot = actual.second
+                            folder = actual.second.substringAfterLast('/')
+                        } else {
+                            val expected = if (dir.isEmpty()) relativeRoot else "$relativeRoot/$dir"
+                            if (actual.second != expected) throw java.io.IOException("MediaStore changed the output folder for ${f.name}")
                         }
-                    val up = android.content.ContentValues()
-                    up.put(colName, f.name)
-                    fun currentName(): String? = contentResolver.query(uri, arrayOf(colName), null, null, null)
-                        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-                    contentResolver.update(uri, up, null, null)
-                    if (currentName() != f.name) {     // rare: the freed name needs a beat
-                        Thread.sleep(250)
-                        contentResolver.update(uri, up, null, null)
+                        val stream = contentResolver.openOutputStream(uri)
+                            ?: throw java.io.IOException("Cannot write ${f.name}")
+                        stream.use { target -> f.inputStream().use { it.copyTo(target) } }
+                        ready.add(f to uri)
+                    } catch (e: Exception) {
+                        runCatching { contentResolver.delete(uri, null, null) }
+                        failed.add(rel)
+                        Log.w("BookReader", "publish failed for $rel", e)
                     }
-                    val now = currentName()
-                    if (now != f.name) {
-                        Log.w("BookReader", "publish: could not reclaim the name ${f.name} (is $now)")
+                    if ((index + 1) % 25 == 0 || index + 1 == files.size) {
+                        listener.onProgress("save", index + 1, files.size)
                     }
                 }
-                saved.add(rel)
-            }.onFailure { Log.w("BookReader", "publish failed for $rel", it) }
+                val updates = ArrayList<android.content.ContentProviderOperation>()
+                for ((_, uri) in ready) updates.add(android.content.ContentProviderOperation.newUpdate(uri)
+                    .withValue(colPending, 0).build())
+                if (updates.isNotEmpty()) contentResolver.applyBatch(android.provider.MediaStore.AUTHORITY, updates)
+                for ((f, _) in ready) saved.add("$folder/${f.relativeTo(exportRoot).invariantSeparatorsPath}")
+            } catch (e: Exception) {
+                // Only fresh rows belong to this batch; historical exports are
+                // never deleted or renamed. Keep the local files for recovery.
+                for (uri in created) runCatching { contentResolver.delete(uri, null, null) }
+                for (f in batch) {
+                    val rel = f.relativeTo(exportRoot).invariantSeparatorsPath
+                    if (rel !in failed) failed.add(rel)
+                }
+                Log.w("BookReader", "publish batch failed", e)
+            }
         }
-        work.deleteRecursively()
-        return saved
+        // PDF and TeX become usable immediately. Batch only the many image rows
+        // to avoid thousands of insert/query/update database round trips.
+        val firstFiles = files.takeWhile { it.extension.lowercase() in setOf("pdf", "tex") }
+        for ((index, f) in firstFiles.withIndex()) publishBatch(listOf(f), index)
+        var offset = firstFiles.size
+        for (batch in files.drop(offset).chunked(64)) {
+            publishBatch(batch, offset)
+            offset += batch.size
+        }
+        if (failed.isEmpty()) work.deleteRecursively()
+        return PublishedResults(saved, failed)
     }
 
     // --------------------------------------------------------------
@@ -387,6 +494,7 @@ class MainActivity : AppCompatActivity() {
         "convert", "read" -> "Reading the book"
         "typeset", "typeset1", "typeset2", "typeset3" -> "Typesetting the PDF"
         "pages" -> "Building pages"
+        "save" -> "Saving files"
         else -> stage.replaceFirstChar { it.uppercase() }
     }
 
@@ -399,7 +507,8 @@ class MainActivity : AppCompatActivity() {
         "typeset2" to (700 to 970),
         "typeset3" to (970 to 1000),
         "typeset" to (250 to 1000),
-        "pages" to (0 to 1000),
+        "pages" to (0 to 970),
+        "save" to (970 to 1000),
     )
 
     /** One 0..1000 progress value from the stage + the within-stage counts. */
@@ -490,18 +599,26 @@ class MainActivity : AppCompatActivity() {
                 if (f != null && f.isFile) convertBook(f) else say("nothing to convert")
             }
             "typeset" -> thread {
-                val msg = typesetSample()
+                val msg = runCatching { typesetDocument(filePath) }
+                    .getOrElse { "TeX reported a problem:\n${it.stackTraceToString()}" }
+                Log.i("BookReader", msg)
                 runOnUiThread { say(msg) }
             }
         }
     }
 
-    /** Kept for the `typeset` autorun: the bundled TeX engine on its own. */
-    private fun typesetSample(): String {
-        val work = File(cacheDir, "texsample").apply { mkdirs() }
-        val tex = File(work, "sample.tex")
-        assets.open("sample/sample.tex").use { input -> tex.outputStream().use { input.copyTo(it) } }
-        val pdf = File(work, "sample.pdf")
+    /** Exercise the embedded engine directly, with the sample or `--es file <tex>`. */
+    private fun typesetDocument(filePath: String): String {
+        val tex = if (filePath.isNotEmpty()) File(filePath) else {
+            val work = File(cacheDir, "texsample").apply { mkdirs() }
+            File(work, "sample.tex").also { target ->
+                assets.open("sample/sample.tex").use { input -> target.outputStream().use { input.copyTo(it) } }
+            }
+        }
+        require(tex.isFile && tex.extension.equals("tex", ignoreCase = true)) { "No TeX source: $tex" }
+        val pdf = File(tex.parentFile, tex.nameWithoutExtension + ".pdf")
+        // The test must prove a new PDF was produced, not report an old output.
+        if (pdf.exists() && !pdf.delete()) error("Cannot replace $pdf")
         val error = TexEngine.typeset(
             tex.absolutePath, pdf.absolutePath,
             TexEngine.bundleDir(this).absolutePath,

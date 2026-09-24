@@ -1,3 +1,12 @@
+@layer er-safety {
+  :root[data-er-mobile]:not([data-er-fxl]) img[data-er-image-size] {
+    width: var(--er-image-width, auto) !important;
+    height: var(--er-image-height, auto) !important;
+    max-width: min(100%, var(--er-image-max-width, 100%)) !important;
+    max-height: min(var(--er-image-max-height, 100000px), var(--er-image-page-height, 100000px)) !important;
+  }
+}
+
 /* ===========================================================================
    Book Reader — assets/reader.css
    The STATIC half of the in-page reading engine (owner C).  The dynamic half

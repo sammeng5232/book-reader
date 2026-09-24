@@ -32,18 +32,31 @@ docs=("$PROBES"/*.tex "$@")
 echo "== compiling ${#docs[@]} probe document(s) to populate the cache =="
 for doc in "${docs[@]}"; do
     cp "$doc" "$work/"
-    ( cd "$work" && "$TECTONIC" -X compile "$(basename "$doc")" --outfmt pdf >/dev/null 2>&1 ) \
-        && echo "   ok   $(basename "$doc")" \
-        || echo "   WARN $(basename "$doc") did not compile cleanly (its files are still cached)"
+    if ( cd "$work" && "$TECTONIC" -X compile "$(basename "$doc")" --outfmt pdf >probe-diagnostics.txt 2>&1 ); then
+        echo "   ok   $(basename "$doc")"
+    else
+        cat "$work/probe-diagnostics.txt" >&2
+        echo "ERROR: $(basename "$doc") did not compile; the installed bundle was not changed" >&2
+        exit 1
+    fi
 done
 
 dir="$(ls -d "$CACHE"/*/ 2>/dev/null | head -1)"
 [ -n "$dir" ] || { echo "no cached bundle under $CACHE" >&2; exit 1; }
 
 echo "== copying $(find "$dir" -type f | wc -l) files into the APK assets =="
+staged="$work/bundle"
+mkdir -p "$staged"
+cp -r "$dir"/. "$staged"/
+# Format generation loads metrics which the probes may not actually render.
+# Complete their mapped PFB/encoding files from an optional installed TeX tree,
+# then reject any incomplete bundle before replacing the currently working one.
+font_args=()
+[ -n "${TEX_FONT_SOURCE:-}" ] && font_args=(--font-source "$TEX_FONT_SOURCE")
+python3 "$HERE/verify-bundle.py" "$staged" "${font_args[@]}"
 rm -rf "$ASSETS"
 mkdir -p "$ASSETS"
-cp -r "$dir"/. "$ASSETS"/
+cp -r "$staged"/. "$ASSETS"/
 # The engine wants a fingerprint for the bundle; make one from the contents so it
 # changes whenever the bundle does (that also re-keys the cached format file).
 ( cd "$ASSETS" && rm -f SHA256SUM \
